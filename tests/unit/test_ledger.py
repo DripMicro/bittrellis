@@ -17,6 +17,7 @@ def _load(name):
     return mod
 
 
+C = _load("progress_chart")  # imported by ledger
 L, P = _load("ledger"), _load("publish_ledger")
 FRONTIER = {"internal": [{"name": "V0", "rp_kl": 0.1357, "decode_tps": 94.9, "prefill_tps": 14760.0,
                           "peak_gpu_gib": 22.02, "tasks_passed": 570, "tasks_n": 784, "frontier": True,
@@ -154,3 +155,30 @@ def test_a_re_measurement_never_rewrites_what_was_published(tmp_path):
     third = led.record({**entry, "tier": "S"}, {"decode_tps": 95.1, "rp_kl": 0.1319})
     assert third.name.endswith(".remeasured-2.json")
     assert json.loads(first.read_text())["tier"] == "M"                           # still untouched
+
+
+def _result(led, pr, author, first_seen, status, tier, gain, name):
+    led.record({"pr": pr, "head": f"{pr}" * 40, "author": author, "first_seen": first_seen, "status": status,
+                "tier": tier, "gain": gain, "name": name}, None)
+
+
+def test_progress_chart_climbs_only_at_merges(tmp_path):
+    led = L.Ledger(tmp_path, "hpc01-e3")
+    _result(led, 4, "maint", "2026-09-24T00:00:00Z", "frontier", "M", 0.0012, "four")
+    _result(led, 6, "alice", "2026-09-26T00:00:01Z", "gate", "REJECT", 0.0, "six")
+    _result(led, 7, "alice", "2026-09-26T00:00:02Z", "frontier", "XS", 0.0001, "seven")   # scored, still open
+    _result(led, 8, "bob", "2026-09-26T00:00:03Z", "queued", None, None, "eight")          # not measured yet
+    (led.dir / "accepted" / "four").mkdir()
+    records = C.load(led.dir)
+    assert [(r["pr"], r["merged"]) for r in records] == [(4, True), (6, False), (7, False)]
+    led.frontier(FRONTIER)
+    svg = (tmp_path / "progress.svg").read_text()
+    assert "+0.120%" in svg and ">#6<" in svg and ">#8<" not in svg and "2 authors" in svg
+    assert "progress.svg" in (tmp_path / "README.md").read_text()
+
+
+def test_progress_chart_keeps_the_level_reached_before_its_window():
+    recs = [{"pr": n, "author": "a", "first_seen": f"t{n:03d}", "status": "frontier", "tier": "XS", "gain": 0.0001,
+             "merged": True} for n in range(20)]
+    svg = C.render(recs, "e", window=16)
+    assert "latest 16 of 20" in svg and "+0.200%" in svg and ">#3<" not in svg and ">#4<" in svg

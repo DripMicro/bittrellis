@@ -7,6 +7,7 @@ directory and pushes it to a repository of its own (evaluator/publish_ledger.py)
 
     <ledger>/
       README.md                        current frontier, regenerated each pass
+      progress.svg                     what merged pull requests have added (evaluator/progress_chart.py)
       <epoch>/frontier.json            the ranking after the pass
       <epoch>/results/<pr>-<head>.json one record per evaluated PR head, never rewritten
                                        (a re-measurement is published beside it as .remeasured-N)
@@ -26,6 +27,8 @@ from __future__ import annotations
 import json
 import shutil
 from pathlib import Path
+
+import progress_chart
 
 RECORD_FIELDS = ("pr", "head", "author", "first_seen", "kind", "status", "tier", "candidate", "name",
                  "gain", "references", "skipped", "screen")
@@ -87,12 +90,14 @@ class Ledger:
     def frontier(self, doc: dict) -> None:
         (self.dir / "frontier.json").write_text(json.dumps(doc, indent=1) + "\n")
         (self.root / "README.md").write_text(render_readme(doc, self.epoch))
+        (self.root / "progress.svg").write_text(progress_chart.render(progress_chart.load(self.dir), self.epoch))
 
 
 def render_readme(frontier: dict, epoch: str) -> str:
     rows = sorted((r for r in frontier.get("internal", [])), key=lambda r: r["rp_kl"])
     lines = [f"# BitTrellis score records ({epoch})", "",
              "> Every evaluated pull request, the frontier it was ranked against, and the artifacts behind both.",
+             "", "![Frontier gain credited to merged pull requests, one column per evaluated pull request](progress.svg)",
              "", "Written by the evaluator after each pass. Re-derive any score yourself:", "",
              "```bash", f"bittrellis frontier {epoch}/accepted <your artifact>", "```", "",
              "| | Checkpoint | RP-KL ↓ | tasks ↑ | decode tok/s ↑ | prefill 4K tok/s ↑ | peak GPU GiB ↓ | holdout | FG-2 |",
