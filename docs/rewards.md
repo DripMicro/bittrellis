@@ -53,7 +53,7 @@ Merging is payment, so the bot merges only what it has just measured and re-chec
 3. Next pass, other open results are re-ranked against it; one whose gain the merge covered drops to `eval:none`.
 4. **A merged PR's tier is final**; the bot never relabels it.
 
-The bot never closes PRs (closing costs credibility); authors close dominated or duplicate PRs. Close PRs you are not pursuing: they reserve collateral and count toward the spam limit.
+The bot closes rejected (`eval:REJECT`) and duplicate PRs itself, with a comment: they cannot earn, and an open PR counts toward your open-PR limit. Closing costs no credibility here (`min_credibility` is 0). Dominated PRs stay open, because a re-rank can revive them; close them yourself once you stop pursuing them, since they reserve collateral and count toward the spam limit.
 
 ## The public record
 

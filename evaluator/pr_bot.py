@@ -37,6 +37,8 @@ closed): labels stay current, and a PR that becomes non-dominated is resumed for
 6. MERGE the top-ranked open result, with --auto-merge. Merging is the payment event and a merged
    tier is final, so every condition is re-checked against a fresh read of the PR at merge time, and
    the merge names the exact evaluated head SHA: GitHub refuses it if the branch moved since.
+7. CLOSE open PRs whose head was rejected or is a duplicate: they cannot earn, and an open PR takes one
+   of the author's open-PR slots on Gittensor. Dominated PRs stay open (a re-rank can revive them).
 
 State lives in <root>/state.json; artifacts in <root>/prs/<number>-<sha>/; accepted artifacts in
 <root>/accepted/ (copied when a PR that the bot evaluated is merged).
@@ -182,6 +184,9 @@ class GitHub:
     def comment(self, number: int, body: str) -> None:
         self.api("POST", f"/issues/{number}/comments", {"body": body})
 
+    def close(self, number: int) -> None:
+        self.api("PATCH", f"/pulls/{number}", {"state": "closed"})
+
     def pull(self, number: int) -> dict:
         """A fresh read of one PR: mergeability, draft state and labels as they are right now."""
         return self.api("GET", f"/pulls/{number}")
@@ -303,6 +308,17 @@ def pick_merge_first(candidates: list[dict]) -> dict | None:
     rank = {t: i for i, t in enumerate(TIERS)}
     paid = [c for c in candidates if c.get("tier") in rank]
     return min(paid, key=lambda c: (rank[c["tier"]], -(c.get("gain") or 0), c["first_seen"])) if paid else None
+
+
+# Closed automatically: this head can no longer earn, and an open PR takes one of the author's open-PR
+# slots on Gittensor. Dominated results stay open, since a closing reference can revive them (rerank).
+CLOSED_STATUSES = REJECTED | {"duplicate"}
+
+
+def to_close(open_prs: list[dict], state: dict) -> list[int]:
+    """Open PRs whose current head was rejected or duplicates a known recipe."""
+    return [p["number"] for p in open_prs
+            if state.get(f"{p['number']}-{p['head']['sha'][:12]}", {}).get("status") in CLOSED_STATUSES]
 
 
 # GitHub's mergeable_state. "clean" alone: "unstable" means a check is failing or still running, and
@@ -539,6 +555,7 @@ class Evaluator:
             self.save()
         self.rerank(open_prs)
         self.auto_merge(self.mark_merge_first(open_prs))
+        self.close_rejected(open_prs)
         self.publish_records()
         self.save()
 
@@ -625,6 +642,22 @@ class Evaluator:
                                 f"FG-2 +{gain:.3f}%. A merged tier is final and is what Gittensor pays.")
         self.accept_merged(number, sha)
         print(f"[merge] #{number} merged as {why}")
+
+    def close_rejected(self, open_prs: list[dict]) -> None:
+        """Close rejected and duplicate PRs, so they stop taking the author's open-PR slots on Gittensor."""
+        for number in to_close(open_prs, self.state):
+            try:
+                self.gh.close(number)
+            except urllib.error.URLError as e:
+                print(f"[close] #{number}: not closed ({e!r})")
+                continue
+            try:
+                self.gh.comment(number, "Closed automatically: this head cannot earn, and an open PR counts against "
+                                        "your open-PR limit on Gittensor. Closing does not affect your credibility on this "
+                                        "repository (`min_credibility` is 0). A revised recipe is welcome as a new PR.")
+            except urllib.error.URLError:
+                pass
+            print(f"[close] #{number} closed")
 
     def evaluate(self, pr: dict, open_prs: list[dict], resume: bool = False) -> None:
         number, sha, author = pr["number"], pr["head"]["sha"], pr["user"]["login"]

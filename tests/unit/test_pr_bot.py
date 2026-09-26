@@ -112,3 +112,11 @@ def test_merge_first_prefers_tier_then_gain_then_first_seen():
          {"pr": 5, "tier": "none", "gain": 0.0, "first_seen": "t0"}]
     assert pr_bot.pick_merge_first(c)["pr"] == 4
     assert pr_bot.pick_merge_first([c[-1]]) is None
+
+
+def test_rejected_and_duplicate_heads_are_closed_dominated_ones_stay_open():
+    prs = [{"number": n, "head": {"sha": f"{n}" * 40}} for n in (6, 7, 8, 9, 10)]
+    state = {f"{n}-{str(n) * 12}": {"status": s}
+             for n, s in ((6, "gate"), (7, "duplicate"), (8, "dominated"), (9, "frontier"))}
+    state["10-" + "f" * 12] = {"status": "gate"}   # an older head of #10: its new head is still unmeasured
+    assert pr_bot.to_close(prs, state) == [6, 7]
