@@ -135,14 +135,6 @@ You don't rewrite the inference engine. You submit a better model for it — and
 <p align="center"><a href="https://github.com/coderbench/bittrellis-ledger"><img src="https://raw.githubusercontent.com/coderbench/bittrellis-ledger/main/progress.svg" alt="Frontier gain credited to merged pull requests, one column per evaluated pull request, with its author and tier." width="100%"/></a></p>
 <p align="center"><sub>Redrawn by the evaluator after every pass from the public <a href="https://github.com/coderbench/bittrellis-ledger">score records</a>.</sub></p>
 
-> [!IMPORTANT]
-> **BitTrellis is not yet listed in Gittensor's registry, so no tier pays anything today.** The
-> evaluator measures and labels PRs exactly as described below, and the score records are public, but
-> the `eval:*` multipliers in this README are what we have *proposed* — until
-> `coderbench/bittrellis` appears in `master_repositories.json`, a merged PR earns ×0. Mine here to
-> shape the track and build a record; do not rent a GPU expecting emissions yet. Status:
-> [rewards.md](docs/rewards.md#listing-status).
-
 <p align="center"><img src="docs/assets/pr-to-tao.svg" alt="Five steps: open a PR with a recipe or a new encoder; the bot screens it without the GPU; measures quality, speed and memory on the RTX 5090; labels it with a tier from eval:XL to eval:XS; the bot merges the top result and Gittensor pays the tier." width="100%"/></p>
 
 1. **Read what the seeds measured** in the [feasibility report](results/feasibility/feasibility_report.md).
@@ -150,7 +142,7 @@ You don't rewrite the inference engine. You submit a better model for it — and
 3. **Open a PR.** The [evaluator bot](evaluator/pr_bot.py) screens it, measures it, and comments with the score.
 4. **Get a tier** — the only thing Gittensor pays, when the evaluator merges the PR:
 
-| Tier | Frontier space added beyond noise (FG-2) | Proposed multiplier |
+| Tier | Frontier space added beyond noise (FG-2) | Multiplier |
 |---|---|---:|
 | ![eval:XL](https://img.shields.io/badge/eval%3AXL-0e8a16?style=flat-square) | ≥ 0.50% | ×4.0 |
 | ![eval:L](https://img.shields.io/badge/eval%3AL-2da44e?style=flat-square) | ≥ 0.25% | ×2.5 |

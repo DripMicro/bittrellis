@@ -369,7 +369,7 @@ def score_header(label: str, row: dict | None = None) -> str:
     gain = 100 * ((row or {}).get("frontier_gain") or 0)
     if label == "frontier":
         tier = tier_for(label, gain / 100, REWARDS["tiers_fg2"])
-        mult = REWARDS["proposed_multipliers"][tier]
+        mult = REWARDS["multipliers"][tier]
         return f"**Score: `{REWARDS['label_family']}:{tier}` · ×{mult:g} on Gittensor when merged** · FG-2 +{gain:.3f}%"
     if label == "gate":
         return f"**Score: `{REWARDS['label_family']}:REJECT` · ×0** · failed a gate"

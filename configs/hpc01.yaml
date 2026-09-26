@@ -103,7 +103,7 @@ gates:
     counted_only_if_bf16_retrieves: true
 
 # Gittensor pays a merged PR by one trusted label (docs/rewards.md). The bot buckets the measured
-# frontier gain (FG-2) into the same eval:* tiers SparkInfer uses, so the registry entry can mirror it.
+# frontier gain (FG-2) into the same eval:* tiers SparkInfer uses, so Gittensor pays them by label.
 # FG-2 is computed noise-aware (a result is handicapped by the epsilon floors, and must beat every other
 # result beyond noise somewhere), then bucketed. Calibrated to the seeds' noise-aware gains: V13's
 # calibrated MLP bytes (0.30%) are L, V0 (0.19%) is M, V4/V1 (0.05/0.04%) are S, V6/V5 are XS.
@@ -111,7 +111,7 @@ gates:
 rewards:
   label_family: eval
   tiers_fg2: {XL: 0.0050, L: 0.0025, M: 0.0012, S: 0.00035, XS: 0.00005}   # minimum FG-2 per tier
-  proposed_multipliers: {XL: 4.0, L: 2.5, M: 1.5, S: 1.0, XS: 0.5, none: 0.0, REJECT: 0.0}
+  multipliers: {XL: 4.0, L: 2.5, M: 1.5, S: 1.0, XS: 0.5, none: 0.0, REJECT: 0.0}
 
 # External reference points: context only.
 external_references:

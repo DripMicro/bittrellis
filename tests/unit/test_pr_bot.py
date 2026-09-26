@@ -95,7 +95,7 @@ def test_tiers_are_calibrated_to_the_seed_gains():
     assert pr_bot.tier_for("dominated", 0.004, t) == "none"
     assert pr_bot.tier_for("gate", None, t) == pr_bot.tier_for("same-encoder", None, t) == "REJECT"
     assert pr_bot.tier_for("queued", None, t) is None and pr_bot.tier_for("needs_approval", None, t) is None
-    assert set(pr_bot.REWARDS["proposed_multipliers"]) == {*pr_bot.TIERS, "none", "REJECT"}
+    assert set(pr_bot.REWARDS["multipliers"]) == {*pr_bot.TIERS, "none", "REJECT"}
 
 
 def test_no_holdout_pass_no_paid_tier():
