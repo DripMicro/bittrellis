@@ -1,0 +1,13 @@
+schema: bittrellis/manifest@2
+track: HPC-01
+name: gdn-q4k-skip-layer0
+description: >
+  Q4_K on every recurrent projection except layer 0. V4 (all GDN Q4_K) saves 0.44 GiB but loses 19%
+  prefill; gdn-q4k-deep (32-63) kept prefill. If layer 0 alone picks the slow path, 1-63 should keep
+  prefill near V0 with most of V4's memory saving.
+authors: [harrythomasben]
+default: NVFP4
+rules:
+  - match: "L*.gdn.*"
+    layers: "1-63"
+    format: Q4_K
