@@ -378,9 +378,31 @@ def score_header(label: str, row: dict | None = None) -> str:
     return f"**Score: `{REWARDS['label_family']}:none` · ×0** · no new frontier space"
 
 
+OBJECTIVE_SENSE = {"rp_kl": min, "decode_tps": max, "prefill_tps": max, "peak_gpu_gib": min}
+
+
+def nearest_on_frontier(row: dict, frontier: dict, k: int = 2) -> list[dict]:
+    """The `k` valid frontier results closest to `row` in the track's normalized box, V0 aside.
+
+    FG-2 is the space a result adds beyond these, so they are what explains its score.
+    """
+    box = frontier.get("box")
+    if not box:
+        return []
+
+    def point(r: dict) -> list[float]:
+        return [(r[o] - box[o][0]) / (box[o][1] - box[o][0]) for o in OBJECTIVE_SENSE]
+
+    here = point(row)
+    others = [r for r in frontier["internal"] if r.get("valid") and r.get("frontier")
+              and r["name"] not in (row["name"], frontier.get("incumbent"))]
+    return sorted(others, key=lambda r: sum((a - b) ** 2 for a, b in zip(here, point(r), strict=True)))[:k]
+
+
 def render_comment(name: str, cid: str, frontier: dict | None, cmp: dict | None, label: str, notes: list[str],
-                   screen: dict | None = None, timings: dict | None = None) -> str:
-    epoch = frontier["evaluator_epoch"] if frontier else "—"
+                   screen: dict | None = None, timings: dict | None = None, epoch: str | None = None,
+                   pr_of: dict[str, int] | None = None) -> str:
+    epoch = frontier["evaluator_epoch"] if frontier else epoch or "—"
     row = next((r for r in frontier["internal"] if r["name"] == name), None) if frontier else None
     lines = [f"### BitTrellis evaluation · `{name}` · `{cid}`", "", score_header(label, row), "",
              f"Epoch `{epoch}` · status **{LABELS[label][0]}**", ""]
@@ -388,14 +410,28 @@ def render_comment(name: str, cid: str, frontier: dict | None, cmp: dict | None,
         def tasks(r: dict) -> str:
             return f"{r['tasks_passed']}/{r['tasks_n']}" if r.get("tasks_n") else "not run"
 
+        def cells(r: dict, bold: set[str] = frozenset()) -> str:
+            v = {"rp_kl": f"{r['rp_kl']:.4f}", "decode_tps": f"{r['decode_tps']:.1f}", "prefill_tps": f"{r['prefill_tps']:,.0f}",
+                 "peak_gpu_gib": f"{r['peak_gpu_gib']:.2f}"}
+            v = {k: f"**{x}**" if k in bold else x for k, x in v.items()}
+            return f"{v['rp_kl']} | {tasks(r)} | {v['decode_tps']} | {v['prefill_tps']} | {v['peak_gpu_gib']}"
+
+        inc = next((r for r in frontier["internal"] if r["name"] == frontier["incumbent"]), None)
+        near = nearest_on_frontier(row, frontier) if row["valid"] else []
+        shown = [r for r in [inc, *near] if r]
+        wins = {k for k, best in OBJECTIVE_SENSE.items()                      # this PR beats every row shown
+                if shown and all(best(row[k], r[k]) == row[k] and row[k] != r[k] for r in shown)}
         lines += ["| | RP-KL ↓ | tasks passed ↑ | decode tok/s ↑ | prefill 4K tok/s ↑ | peak GPU GiB ↓ | holdout | FG-2 |",
                   "|---|---:|---:|---:|---:|---:|---|---:|",
-                  f"| **this PR** | {row['rp_kl']:.4f} | {tasks(row)} | {row['decode_tps']:.1f} | {row['prefill_tps']:,.0f} | "
-                  f"{row['peak_gpu_gib']:.2f} | {row['holdout'] or 'not run'} | {100 * (row['frontier_gain'] or 0):.3f}% |"]
-        inc = next((r for r in frontier["internal"] if r["name"] == frontier["incumbent"]), None)
+                  f"| **this PR** | {cells(row, wins)} | {row['holdout'] or 'not run'} | {100 * (row['frontier_gain'] or 0):.3f}% |"]
         if inc:
-            lines.append(f"| V0 incumbent | {inc['rp_kl']:.4f} | {tasks(inc)} | {inc['decode_tps']:.1f} | {inc['prefill_tps']:,.0f} | "
-                         f"{inc['peak_gpu_gib']:.2f} | — | — |")
+            lines.append(f"| V0 incumbent | {cells(inc)} | — | — |")
+        for r in near:
+            who = f" (#{pr_of[r['name']]})" if pr_of and r["name"] in pr_of else ""
+            lines.append(f"| ↳ `{r['name']}`{who} | {cells(r)} | {r.get('holdout') or '—'} | — |")
+        if near:
+            lines += ["", "↳ the nearest results already on the frontier: FG-2 is the space this PR adds beyond them and "
+                      "every other result." + (" **Bold** marks where this PR beats every row shown." if wins else "")]
         lines += ["", "RP-KL measures how closely the model keeps the original's predictions (fidelity), not task accuracy; "
                   "tasks are a guard, compared with V0 question by question."]
         if cmp:
@@ -857,7 +893,7 @@ class Evaluator:
                 self._delete(ckpt)
                 return finish("gate", "gate", render_comment(cand["name"], cand["id"], None, None, "gate",
                               notes + ["Quality gates failed; speed runs, tasks and holdout skipped:", *fails], screen,
-                              self._timings(art)), screen=screen, artifact=str(art), name=cand["name"])
+                              self._timings(art), epoch=self.epoch), screen=screen, artifact=str(art), name=cand["name"])
             # ---- stage 2: performance ----
             if run(ev + ["--stages", "performance"] + reuse, REPO_ROOT, log) != 0:
                 raise RuntimeError("performance stage failed")
@@ -982,7 +1018,8 @@ class Evaluator:
         cmp = json.loads(cmp_out.stdout) if cmp_out.returncode == 0 else None
         if refs:
             notes.append("Ranked with earlier open PRs on the frontier: " + ", ".join(f"#{self.state[k]['pr']}" for k in refs) + ".")
-        body = render_comment(cand["name"], cand["id"], frontier, cmp, label, notes, screen, self._timings(art))
+        pr_of = {e["name"]: e["pr"] for e in self.state.values() if isinstance(e, dict) and e.get("name") and e.get("pr")}
+        body = render_comment(cand["name"], cand["id"], frontier, cmp, label, notes, screen, self._timings(art), pr_of=pr_of)
         self._delete(ckpt)  # a skipped result that a later re-rank lifts is rebuilt (deterministic, CPU)
         row = next((r for r in frontier["internal"] if r["id"] == cand["id"]), {})
         return finish(label, label, body, artifact=str(art), candidate=cand["id"], name=cand["name"], references=refs,

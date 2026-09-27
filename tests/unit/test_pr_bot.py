@@ -120,3 +120,19 @@ def test_rejected_and_duplicate_heads_are_closed_dominated_ones_stay_open():
              for n, s in ((6, "gate"), (7, "duplicate"), (8, "dominated"), (9, "frontier"))}
     state["10-" + "f" * 12] = {"status": "gate"}   # an older head of #10: its new head is still unmeasured
     assert pr_bot.to_close(prs, state) == [6, 7]
+
+
+def test_comment_shows_the_nearest_frontier_results_and_bolds_only_clear_wins():
+    box = {"rp_kl": [0.0, 0.3], "decode_tps": [60.0, 120.0], "prefill_tps": [2000.0, 20000.0], "peak_gpu_gib": [14.0, 32.0]}
+
+    def row(name, kl, pre, mem, frontier=True):
+        return {"name": name, "rp_kl": kl, "decode_tps": 96.0, "prefill_tps": pre, "peak_gpu_gib": mem, "tasks_passed": 570,
+                "tasks_n": 784, "holdout": "PASS", "valid": True, "frontier": frontier, "frontier_gain": 0.0003,
+                "gate_failures": [], "dominated_by": []}
+    frontier = {"evaluator_epoch": "e", "incumbent": "V0", "box": box,
+                "internal": [row("mine", 0.120, 12000, 20.5), row("V0", 0.136, 14760, 22.0), row("near", 0.125, 11000, 21.0),
+                             row("far", 0.200, 3000, 30.0), row("gone", 0.121, 12001, 20.5, frontier=False)]}
+    body = pr_bot.render_comment("mine", "cid", frontier, None, "frontier", [], pr_of={"near": 5})
+    assert "`near` (#5)" in body and "`far`" in body and "`gone`" not in body   # off-frontier rows are never shown
+    assert "**0.1200**" in body and "**20.50**" in body and "**12,000**" not in body   # V0 is faster at prefill
+    assert "Epoch `e2`" in pr_bot.render_comment("x", "cid", None, None, "gate", ["failed"], epoch="e2")

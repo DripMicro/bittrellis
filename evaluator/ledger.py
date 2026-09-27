@@ -8,6 +8,7 @@ directory and pushes it to a repository of its own (evaluator/publish_ledger.py)
     <ledger>/
       README.md                        current frontier, regenerated each pass
       progress.svg                     what merged pull requests have added (evaluator/progress_chart.py)
+      tradeoffs.svg                    the trade-off each merged recipe makes, for choosing one
       <epoch>/frontier.json            the ranking after the pass
       <epoch>/results/<pr>-<head>.json one record per evaluated PR head, never rewritten
                                        (a re-measurement is published beside it as .remeasured-N)
@@ -88,17 +89,75 @@ class Ledger:
                 shutil.copyfile(src, dst / f)
 
     def frontier(self, doc: dict) -> None:
+        records = progress_chart.load(self.dir)
+        merged = [r for r in records if r["merged"]]
         (self.dir / "frontier.json").write_text(json.dumps(doc, indent=1) + "\n")
-        (self.root / "README.md").write_text(render_readme(doc, self.epoch))
-        (self.root / "progress.svg").write_text(progress_chart.render(progress_chart.load(self.dir), self.epoch))
+        (self.root / "README.md").write_text(render_readme(doc, self.epoch, merged))
+        (self.root / "progress.svg").write_text(progress_chart.render(records, self.epoch))
+        (self.root / "tradeoffs.svg").write_text(progress_chart.render_tradeoffs(doc, merged))
 
 
-def render_readme(frontier: dict, epoch: str) -> str:
+TIER_COLORS = {"XL": "0e8a16", "L": "2da44e", "M": "4ac26b", "S": "8ddb8c", "XS": "c6efce"}  # as evaluator/pr_bot.py
+PICKS = (("Closest to the original model", "rp_kl", min), ("Fastest prompt reading", "prefill_tps", max),
+         ("Least GPU memory", "peak_gpu_gib", min))
+
+
+def _versus(r: dict, inc: dict) -> tuple[str, str, str]:
+    """Drift, prompt speed and memory of `r`, each with its change against the shipped checkpoint in words."""
+    drift = (inc["rp_kl"] - r["rp_kl"]) / inc["rp_kl"]
+    speed = r["prefill_tps"] / inc["prefill_tps"] - 1
+    mem = inc["peak_gpu_gib"] - r["peak_gpu_gib"]
+    return (f"{r['rp_kl']:.4f} · {abs(drift):.1%} {'closer' if drift >= 0 else 'further'}",
+            f"{r['prefill_tps']:,.0f} tok/s · {abs(speed):.0%} {'faster' if speed >= 0 else 'slower'}",
+            f"{r['peak_gpu_gib']:.2f} GiB · {abs(mem):.2f} GiB {'less' if mem >= 0 else 'more'}")
+
+
+def recommend(frontier: dict, merged: list[dict]) -> list[str]:
+    """'Which checkpoint to use': the best merged recipe on each axis that still stands on the frontier.
+
+    Only results that passed the private holdout and are not dominated by a later result are offered.
+    """
+    rows = {r["name"]: r for r in frontier.get("internal", [])}
+    inc = rows.get(frontier.get("incumbent", ""))
+    cands = [(m, rows[m["name"]]) for m in merged if m["name"] in rows and rows[m["name"]].get("valid")
+             and rows[m["name"]].get("frontier") and rows[m["name"]].get("holdout") == "PASS"]
+    if not inc or not cands:
+        return []
+    lines = ["## Which checkpoint to use", "",
+             "Every merged recipe trades a little of one thing for another. Pick by what you need; each change is "
+             "against today's shipped checkpoint (V0).", "",
+             "![The trade-off each merged recipe makes: prompt speed against closeness to the original model, "
+             "with peak GPU memory](tradeoffs.svg)", "",
+             "| Best for | Recipe | Closeness to the original (RP-KL) | Prompt reading, 4K | Peak GPU memory |",
+             "|---|---|---|---|---|"]
+    picks: dict[str, tuple[dict, dict, list[str], set[int]]] = {}   # one row per recipe, however many picks it wins
+    for i, (label, key, pick) in enumerate(PICKS):
+        m, r = pick(cands, key=lambda c: c[1][key])
+        entry = picks.setdefault(m["name"], (m, r, [], set()))
+        entry[2].append(label)
+        entry[3].add(i)
+    for m, r, labels, won in picks.values():
+        tier = m.get("tier") or ""
+        badge = (f"![eval:{tier}](https://img.shields.io/badge/eval%3A{tier}-{TIER_COLORS[tier]}?style=flat-square)"
+                 if tier in TIER_COLORS else "")
+        cells = [f"**{c}**" if i in won else c for i, c in enumerate(_versus(r, inc))]   # bold what it was picked for
+        lines.append(f"| **{' · '.join(labels)}** | `{m['name']}`<br>#{m['pr']} by @{m['author']} {badge} | "
+                     + " | ".join(cells) + " |")
+    lines += [f"| *for reference* | V0, today's shipped checkpoint | {inc['rp_kl']:.4f} | {inc['prefill_tps']:,.0f} tok/s | "
+              f"{inc['peak_gpu_gib']:.2f} GiB |",
+              "", "Build one yourself (after `scripts/setup_models.sh` in "
+              "[bittrellis](https://github.com/coderbench/bittrellis)):", "", "```bash",
+              *[f"bittrellis build manifests/{n}.yaml --out models/{n}" for n in picks], "```", ""]
+    return lines
+
+
+def render_readme(frontier: dict, epoch: str, merged: list[dict] | None = None) -> str:
     rows = sorted((r for r in frontier.get("internal", [])), key=lambda r: r["rp_kl"])
     lines = [f"# BitTrellis score records ({epoch})", "",
              "> Every evaluated pull request, the frontier it was ranked against, and the artifacts behind both.",
-             "", "![Frontier gain credited to merged pull requests over time, pull requests scored per day by outcome, and the authors with the most credited gain.](progress.svg)",
-             "", "Written by the evaluator after each pass. Re-derive any score yourself:", "",
+             "", *recommend(frontier, merged or []),
+             "## Progress", "", "![Frontier gain credited to merged pull requests over time, pull requests scored per day by outcome, and the authors with the most credited gain.](progress.svg)",
+             "", "## Every measured result", "", "Written by the evaluator after each pass. Re-derive any score yourself:", "",
              "```bash", f"bittrellis frontier {epoch}/accepted <your artifact>", "```", "",
              "| | Checkpoint | RP-KL ↓ | tasks ↑ | decode tok/s ↑ | prefill 4K tok/s ↑ | peak GPU GiB ↓ | holdout | FG-2 |",
              "|---|---|---:|---:|---:|---:|---:|---|---:|"]

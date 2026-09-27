@@ -1,4 +1,5 @@
-"""Draw the public progress chart from the score record: what merged pull requests have added.
+"""Draw the public charts from the score record: what merged pull requests have added (progress.svg)
+and the trade-off each merged recipe makes (tradeoffs.svg, see render_tradeoffs).
 
     python evaluator/progress_chart.py <ledger>/<epoch> > progress.svg
 
@@ -30,10 +31,10 @@ FONT = "-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif"
 # (lightness band, chroma, colour-blind separation, contrast against the surface).
 STYLE = """<style>
 .bg{fill:#ffffff;stroke:#d0d7de}.t{fill:#1f2328}.m{fill:#59636e}.rule{stroke:#d0d7de}.ring{stroke:#ffffff}
-.acc{fill:#8b5cf6}.accl{stroke:#8b5cf6}.wash{fill:#8b5cf6;fill-opacity:.1}.gry{fill:#8c959f}.rej{fill:#d03b3b}.track{fill:#eaeef2}
+.acc{fill:#8b5cf6}.accl{stroke:#8b5cf6}.wash{fill:#8b5cf6;fill-opacity:.1}.gry{fill:#8c959f}.rej{fill:#d03b3b}.track{fill:#eaeef2}.tk{stroke:#1f2328}
 @media (prefers-color-scheme: dark){
 .bg{fill:#0d1117;stroke:#30363d}.t{fill:#e6edf3}.m{fill:#9198a1}.rule{stroke:#30363d}.ring{stroke:#0d1117}
-.acc{fill:#9a75f8}.accl{stroke:#9a75f8}.wash{fill:#9a75f8;fill-opacity:.14}.gry{fill:#9198a1}.rej{fill:#e5534b}.track{fill:#21262d}}
+.acc{fill:#9a75f8}.accl{stroke:#9a75f8}.wash{fill:#9a75f8;fill-opacity:.14}.gry{fill:#9198a1}.rej{fill:#e5534b}.track{fill:#21262d}.tk{stroke:#e6edf3}}
 </style>"""
 MEASURED = {"frontier", "provisional", "dominated", "gate", "audit", "same-encoder", "nondeterministic",
             "invalid", "build", "memory", "duplicate"}
@@ -221,6 +222,91 @@ def render(records: list[dict], epoch: str) -> str:
                       f'font-family="{FONT}" role="img" aria-label="Frontier gain credited to merged pull requests: '
                       f'+{_pct(total)} from {len(merged)} merges, {len(records)} pull requests scored">', STYLE,
                       f'<rect class="bg" x="0.5" y="0.5" width="{W - 1}" height="{H - 1}" rx="12"/>', *b, "</svg>"]) + "\n"
+
+
+def _nice_range(lo: float, hi: float) -> tuple[float, float, float]:
+    """Axis bounds padded to clean steps around [lo, hi], and the step."""
+    step = _nice((hi - lo) / 4 or abs(hi) / 10 or 1)
+    return floor(lo / step) * step, -(-hi // step) * step, step
+
+
+def render_tradeoffs(frontier: dict, merged: list[dict]) -> str:
+    """Where each merged result sits: prompt speed across, closeness to the original model up.
+
+    Merged pull requests are labelled with their number and peak memory; the shipped checkpoint (V0)
+    is marked; every other valid result is gray context.
+    """
+    w, h = 900, 470
+    left, right, top, bottom = 84, 870, 92, 380
+    rows = [r for r in frontier.get("internal", []) if r.get("valid")]
+    by_name = {m["name"]: m for m in merged}
+    b = [_text(24, 36, "Which trade-off each merged recipe makes", size=18, weight=600),
+         _text(24, 57, "Up is closer to the original model; right reads prompts faster. Labels give peak GPU memory.", "m")]
+    if not rows:
+        return _svg(w, h, b + [_text(w / 2, h / 2, "No measured results yet", "m", 13, anchor="middle")])
+    x0, x1, xs = _nice_range(min(r["prefill_tps"] for r in rows), max(r["prefill_tps"] for r in rows))
+    y0, y1, ys = _nice_range(min(r["rp_kl"] for r in rows), max(r["rp_kl"] for r in rows))
+    px = lambda v: left + (right - left) * (v - x0) / (x1 - x0)  # noqa: E731
+    py = lambda v: top + (bottom - top) * (v - y0) / (y1 - y0)   # noqa: E731  lower RP-KL is drawn higher
+    v = y0
+    while v <= y1 + 1e-12:
+        b += [f'<line class="rule" x1="{left}" x2="{right}" y1="{py(v):.1f}" y2="{py(v):.1f}" stroke-width="1"/>',
+              _text(left - 8, py(v) + 4, f"{v:.3f}", "m", 11, anchor="end")]
+        v += ys
+    v = x0
+    while v <= x1 + 1e-9:
+        b.append(_text(px(v), bottom + 18, f"{v:,.0f}", "m", 11, anchor="middle"))
+        v += xs
+    b += [_text((left + right) / 2, bottom + 40, "Prompt reading speed, 4K prefill tok/s →", "m", 12, anchor="middle"),
+          f'<text x="22" y="{(top + bottom) / 2:.1f}" class="m" font-size="12" text-anchor="middle" '
+          f'transform="rotate(-90 22 {(top + bottom) / 2:.1f})">Drift from the original, RP-KL (closer ↑)</text>',
+          _text(right - 4, top + 16, "better ↗", "m", 12, weight=600, anchor="end")]
+
+    incumbent = frontier.get("incumbent")
+    context = [r for r in rows if r["name"] not in by_name and r["name"] != incumbent]
+    for r in context:
+        b.append(f'<circle class="gry" cx="{px(r["prefill_tps"]):.1f}" cy="{py(r["rp_kl"]):.1f}" r="4" opacity=".55"/>')
+    marks = [(r, by_name[r["name"]]) for r in rows if r["name"] in by_name]
+    inc = next((r for r in rows if r["name"] == incumbent), None)
+    placed: list[tuple[float, float, float, float]] = []
+
+    def label(cx: float, cy: float, s: str, weight: int) -> None:
+        wd = 6.4 * len(s)
+        for dx, dy, anchor in ((9, 4, "start"), (-9, 4, "end"), (0, -11, "middle"), (0, 19, "middle")):
+            lx = cx + dx - (wd if anchor == "end" else wd / 2 if anchor == "middle" else 0)
+            box = (lx, cy + dy - 11, lx + wd, cy + dy + 3)
+            if all(box[2] < p[0] or box[0] > p[2] or box[3] < p[1] or box[1] > p[3] for p in placed) and left <= box[0] and box[2] <= w - 8:
+                placed.append(box)
+                b.append(_text(cx + dx, cy + dy, s, size=11, weight=weight, anchor=anchor))
+                return
+
+    if inc:
+        cx, cy = px(inc["prefill_tps"]), py(inc["rp_kl"])
+        b.append(f'<circle class="tk" cx="{cx:.1f}" cy="{cy:.1f}" r="5" fill="none" stroke-width="2"/>')
+        placed.append((cx - 6, cy - 6, cx + 6, cy + 6))
+    for r, _ in marks:
+        cx, cy = px(r["prefill_tps"]), py(r["rp_kl"])
+        b.append(f'<circle class="acc ring" cx="{cx:.1f}" cy="{cy:.1f}" r="5.5" stroke-width="2"/>')
+        placed.append((cx - 6, cy - 6, cx + 6, cy + 6))
+    if inc:
+        label(px(inc["prefill_tps"]), py(inc["rp_kl"]), f"V0 shipped · {inc['peak_gpu_gib']:.1f} GiB", 600)
+    for r, m in sorted(marks, key=lambda t: t[0]["rp_kl"])[:14]:     # past 14, labels would crowd the map
+        label(px(r["prefill_tps"]), py(r["rp_kl"]), f"#{m['pr']} · {r['peak_gpu_gib']:.1f} GiB", 600)
+
+    ly, lx = h - 16, 24  # legend: words beside every mark
+    for dx, mark, words in ((0, f'<circle class="acc" cx="{lx + 5}" cy="{ly - 4}" r="5"/>', "merged pull request"),
+                            (170, f'<circle class="tk" cx="{lx + 175}" cy="{ly - 4}" r="5" fill="none" stroke-width="2"/>',
+                             "V0, the shipped checkpoint"),
+                            (370, f'<circle class="gry" cx="{lx + 375}" cy="{ly - 4}" r="4" opacity=".55"/>',
+                             "other measured results")):
+        b += [mark, _text(lx + dx + 15, ly, words, "m", 11)]
+    return _svg(w, h, b, f"Trade-offs of {len(marks)} merged recipes against the shipped checkpoint")
+
+
+def _svg(w: int, h: int, body: list[str], label: str = "") -> str:
+    return "\n".join([f'<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}" viewBox="0 0 {w} {h}" '
+                      f'font-family="{FONT}" role="img" aria-label="{escape(label)}">', STYLE,
+                      f'<rect class="bg" x="0.5" y="0.5" width="{w - 1}" height="{h - 1}" rx="12"/>', *body, "</svg>"]) + "\n"
 
 
 def main() -> int:

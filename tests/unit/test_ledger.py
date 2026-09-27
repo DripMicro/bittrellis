@@ -186,3 +186,19 @@ def test_progress_chart_stays_readable_with_many_pull_requests():
     assert ">+3.00%<" in svg and ">300<" in svg and "5 more authors" in svg   # 12 authors: 7 shown, 5 folded
     assert svg.count("<circle") == 3                                             # past 24 merges only the labelled steps
     assert "per day" in svg
+
+
+def test_which_checkpoint_offers_only_standing_holdout_passes_one_row_per_recipe():
+    def row(name, kl, pre, mem, holdout="PASS", frontier=True):
+        return {"name": name, "rp_kl": kl, "decode_tps": 95.0, "prefill_tps": pre, "peak_gpu_gib": mem,
+                "holdout": holdout, "valid": True, "frontier": frontier}
+    doc = {"incumbent": "V0", "internal": [row("V0", 0.136, 14760, 22.0, None), row("lean", 0.124, 9000, 20.8),
+                                           row("quick", 0.129, 14300, 21.8), row("failed", 0.110, 15000, 20.0, "FAIL"),
+                                           row("passed-by", 0.100, 16000, 19.0, frontier=False)]}
+    merged = [{"name": n, "pr": i, "author": "a", "tier": "XS"} for i, n in enumerate(["lean", "quick", "failed", "passed-by"])]
+    text = "\n".join(L.recommend(doc, merged))
+    assert "**Closest to the original model · Least GPU memory**" in text and "**Fastest prompt reading**" in text
+    assert "`failed`" not in text and "`passed-by`" not in text        # holdout FAIL, or no longer on the frontier
+    assert "**0.1240 · 8.8% closer**" in text and "9,000 tok/s · 39% slower" in text   # bold only what it was picked for
+    assert "bittrellis build manifests/lean.yaml" in text and "tradeoffs.svg" in text
+    assert L.recommend({"incumbent": "V0", "internal": []}, merged) == []
