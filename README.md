@@ -132,7 +132,7 @@ the pinned loader accepts only per-row scales.
 You don't rewrite the inference engine. You submit a better model for it — and get paid on
 [Gittensor](https://github.com/entrius/gittensor) when it merges.
 
-<p align="center"><a href="https://github.com/coderbench/bittrellis-ledger"><img src="https://raw.githubusercontent.com/coderbench/bittrellis-ledger/main/progress.svg" alt="Frontier gain credited to merged pull requests, one column per evaluated pull request, with its author and tier." width="100%"/></a></p>
+<p align="center"><a href="https://github.com/coderbench/bittrellis-ledger"><img src="https://raw.githubusercontent.com/coderbench/bittrellis-ledger/main/progress.svg" alt="Frontier gain credited to merged pull requests over time, pull requests scored per day by outcome, and the authors with the most credited gain." width="100%"/></a></p>
 <p align="center"><sub>Redrawn by the evaluator after every pass from the public <a href="https://github.com/coderbench/bittrellis-ledger">score records</a>.</sub></p>
 
 <p align="center"><img src="docs/assets/pr-to-tao.svg" alt="Five steps: open a PR with a recipe or a new encoder; the bot screens it without the GPU; measures quality, speed and memory on the RTX 5090; labels it with a tier from eval:XL to eval:XS; the bot merges the top result and Gittensor pays the tier." width="100%"/></p>

@@ -171,14 +171,18 @@ def test_progress_chart_climbs_only_at_merges(tmp_path):
     (led.dir / "accepted" / "four").mkdir()
     records = C.load(led.dir)
     assert [(r["pr"], r["merged"]) for r in records] == [(4, True), (6, False), (7, False)]
+    assert [C.outcome(r) for r in records] == ["credited", "rejected", "credited"]
     led.frontier(FRONTIER)
     svg = (tmp_path / "progress.svg").read_text()
-    assert "+0.120%" in svg and ">#6<" in svg and ">#8<" not in svg and "2 authors" in svg
+    assert "+0.120%" in svg and ">#4 · M<" in svg and ">maint<" in svg and ">alice<" not in svg   # alice has no merge
     assert "progress.svg" in (tmp_path / "README.md").read_text()
+    assert led.frontier(FRONTIER) is None and (tmp_path / "progress.svg").read_text() == svg      # same records, same bytes
 
 
-def test_progress_chart_keeps_the_level_reached_before_its_window():
-    recs = [{"pr": n, "author": "a", "first_seen": f"t{n:03d}", "status": "frontier", "tier": "XS", "gain": 0.0001,
-             "merged": True} for n in range(20)]
-    svg = C.render(recs, "e", window=16)
-    assert "latest 16 of 20" in svg and "+0.200%" in svg and ">#3<" not in svg and ">#4<" in svg
+def test_progress_chart_stays_readable_with_many_pull_requests():
+    recs = [{"pr": n, "author": f"a{n % 12}", "first_seen": f"2026-{9 + n // 150:02d}-{1 + n % 28:02d}T00:00:00Z",
+             "status": "frontier", "tier": "XS", "gain": 0.0001, "merged": True} for n in range(300)]
+    svg = C.render(sorted(recs, key=lambda r: r["first_seen"]), "e")
+    assert ">+3.00%<" in svg and ">300<" in svg and "5 more authors" in svg   # 12 authors: 7 shown, 5 folded
+    assert svg.count("<circle") == 3                                             # past 24 merges only the labelled steps
+    assert "per day" in svg

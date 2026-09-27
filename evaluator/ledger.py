@@ -97,7 +97,7 @@ def render_readme(frontier: dict, epoch: str) -> str:
     rows = sorted((r for r in frontier.get("internal", [])), key=lambda r: r["rp_kl"])
     lines = [f"# BitTrellis score records ({epoch})", "",
              "> Every evaluated pull request, the frontier it was ranked against, and the artifacts behind both.",
-             "", "![Frontier gain credited to merged pull requests, one column per evaluated pull request](progress.svg)",
+             "", "![Frontier gain credited to merged pull requests over time, pull requests scored per day by outcome, and the authors with the most credited gain.](progress.svg)",
              "", "Written by the evaluator after each pass. Re-derive any score yourself:", "",
              "```bash", f"bittrellis frontier {epoch}/accepted <your artifact>", "```", "",
              "| | Checkpoint | RP-KL ↓ | tasks ↑ | decode tok/s ↑ | prefill 4K tok/s ↑ | peak GPU GiB ↓ | holdout | FG-2 |",
