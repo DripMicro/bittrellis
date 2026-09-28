@@ -120,7 +120,7 @@ journalctl -u bittrellis-evaluator -f
 bittrellis doctor                                  # pins, models, runtime, corpus, reference
 bittrellis frontier --with-seeds                   # the current ranking
 cat /workspace/bt-eval/state.json                  # per-PR status
-ls /workspace/bt-eval/ledger/hpc01-e3/results/     # published score records
+ls /workspace/bt-eval/ledger/hpc01-e4/results/     # published score records
 ```
 
 ## 6. Before returning the box

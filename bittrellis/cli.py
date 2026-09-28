@@ -377,6 +377,10 @@ def cmd_holdout(args) -> int:
             return 1
         print(f"private holdout {c['version']}: {len(c['streams'])} streams, sha256 {c['sha256'][:16]}")
         return 0
+    if args.action == "recheck":  # re-judge from cached holdout positions under the current rule; no GPU
+        verdict = holdout.recheck(track, Path(args.artifact), Path(args.private), Path(args.incumbent_artifact))
+        print(f"HOLDOUT {verdict}")
+        return 0 if verdict == "PASS" else 1
     verdict = holdout.check(SparkInfer(args.sparkinfer, track), track, Path(args.checkpoint), Path(args.artifact),
                             Path(args.private), Path(args.shipped), Path(args.incumbent_artifact))
     print(f"HOLDOUT {verdict}")
@@ -535,8 +539,9 @@ def main(argv: list[str] | None = None) -> int:
     p = sp("evaluate-llamacpp", cmd_evaluate_llamacpp, "external reference R2 through pinned llama.cpp", "llamacpp", "corpus", "reference")
     p.add_argument("--gguf", default=str(REPO_ROOT / "models/Qwen3.8-27B-GGUF/Qwen3.8-27B-UD-Q4_K_M.gguf"))
     p.add_argument("--out", required=True)
-    p = sp("holdout", cmd_holdout, "validators: inventory or build the private holdout, or check a candidate (PASS/FAIL)", "shipped", "sparkinfer")
-    p.add_argument("action", choices=["inventory", "build", "check"])
+    p = sp("holdout", cmd_holdout, "validators: inventory or build the private holdout, check a candidate (PASS/FAIL), "
+           "or recheck one already scored under the current rule", "shipped", "sparkinfer")
+    p.add_argument("action", choices=["inventory", "build", "check", "recheck"])
     p.add_argument("--private", required=True)
     p.add_argument("checkpoint", nargs="?")
     p.add_argument("--artifact")

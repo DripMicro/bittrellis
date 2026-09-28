@@ -91,6 +91,43 @@ def save_positions(results: list[StreamQuality], path) -> None:
     np.savez_compressed(path, **arrays)
 
 
+def section_of(stream: str) -> str:
+    """Balancing sections: each short category on its own, the long-context streams together."""
+    return "long" if stream.startswith("long-") else stream
+
+
+def balance_scale(ref: dict[str, np.ndarray]) -> dict[str, float]:
+    """Per-stream factors that turn mean drift into section-balanced drift against `ref` (epoch hpc01-e4).
+
+    Balanced drift = RP-KL(ref) × mean over sections of (drift in that section / ref's drift there), so ref
+    keeps its own RP-KL and every section counts equally by its *relative* change. Without it, the section
+    where the reference drifts most decides most of every score (the public maths stream did, in hpc01-e3).
+    """
+    streams = sorted(k[:-3] for k in ref if k.endswith(".kl"))
+    total = np.concatenate([ref[f"{s}.kl"] for s in streams]).astype(np.float64)
+    sections: dict[str, list[str]] = {}
+    for s in streams:
+        sections.setdefault(section_of(s), []).append(s)
+    out = {}
+    for members in sections.values():
+        sec = np.concatenate([ref[f"{s}.kl"] for s in members]).astype(np.float64)
+        for s in members:
+            out[s] = float(total.mean() * len(total) / (len(sections) * sec.mean() * len(sec)))
+    return out
+
+
+def balanced(positions: dict[str, np.ndarray], scale: dict[str, float] | None) -> dict[str, np.ndarray]:
+    """`positions` with each stream's per-position drift weighted so that its mean is section-balanced drift."""
+    if not scale:
+        return positions
+    return {k: (v.astype(np.float64) * scale[k[:-3]] if k.endswith(".kl") and k[:-3] in scale else v)
+            for k, v in positions.items()}
+
+
+def mean_drift(positions: dict[str, np.ndarray]) -> float:
+    return float(np.concatenate([v for k, v in sorted(positions.items()) if k.endswith(".kl")]).astype(np.float64).mean())
+
+
 def paired_delta(a: dict[str, np.ndarray], b: dict[str, np.ndarray], block: int = 128, n_boot: int = 2000,
                  seed: int = 0) -> dict:
     """Mean RP-KL(b) - RP-KL(a) over identical positions with a paired block-bootstrap 95% interval.

@@ -8,6 +8,18 @@ seed (`results/feasibility/artifacts`), and accepted miner results. The frontier
 resubmitting a seed earns nothing. **External rows** (R1 unsloth checkpoint, R2 llama.cpp UD-Q4_K_M,
 R3 NVIDIA compatibility boundary) are context only.
 
+## Section-balanced drift (hpc01-e4)
+
+The fidelity objective is RP-KL made **section-balanced**: V0's RP-KL × the mean, over sections, of the
+candidate's drift relative to V0's in that section. Sections are the five short categories (general,
+maths, code, tools, multilingual) and the three long-context streams together. V0 keeps its own RP-KL,
+and halving drift counts the same in every section.
+
+In hpc01-e3 RP-KL was the plain mean over positions, so the section where V0 drifts most decided most of
+every score: for about half of all results most of the public gain came from the maths stream alone. The
+plain mean stays in `frontier.json` as `rp_kl_raw`. Paired comparisons (dominance, the holdout transfer
+test) use the same weights, so every test measures the same quantity.
+
 ## ε-dominance
 
 A difference counts only beyond noise margin ε. *Materially better* means:

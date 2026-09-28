@@ -9,6 +9,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import yaml
 
 from bittrellis.cli import main as cli_main
 
@@ -18,6 +19,7 @@ spec = importlib.util.spec_from_file_location("pr_bot", ROOT / "evaluator/pr_bot
 pr_bot = importlib.util.module_from_spec(spec)
 sys.modules["pr_bot"] = pr_bot
 spec.loader.exec_module(pr_bot)
+EPOCH = yaml.safe_load((Path(__file__).resolve().parents[2] / "configs/hpc01.yaml").read_text())["evaluation"]["epoch"]
 
 
 def manifest_yaml(name, rules):
@@ -154,14 +156,14 @@ def test_frontier_duplicate_near_copy_and_staged_skip(bot):
     assert "Claude" not in json.dumps(gh.comments)
 
     # the public score record: one write-once record per evaluated head, plus the frontier and README
-    ledger = Path(bot.args.ledger) / "hpc01-e3"
+    ledger = Path(bot.args.ledger) / EPOCH
     records = {json.loads(p.read_text())["pr"]: json.loads(p.read_text()) for p in (ledger / "results").glob("*.json")}
     assert set(records) == {1, 2, 3, 4}
     assert records[1]["tier"] in {f"{t}" for t in pr_bot.TIERS} and records[1]["row"]["rp_kl"] > 0
     assert records[2]["status"] == "duplicate" and records[2]["screen"]["manifest"]["original"]["pr"] == 1
     assert (ledger / "observations" / "pr-000001-aaaaaaaaaaaa.json").exists()
     readme = (Path(bot.args.ledger) / "README.md").read_text()
-    assert "V0-baseline-rebuild" in readme and "hpc01-e3/accepted" in readme
+    assert "V0-baseline-rebuild" in readme and f"{EPOCH}/accepted" in readme
     assert "holdout" not in json.dumps(records[1]).lower() or records[1]["row"]["holdout"] in ("PASS", "FAIL", None)
 
     # alice closes #1 unmerged: carol's result is re-ranked, becomes non-dominated, and resumes for tasks

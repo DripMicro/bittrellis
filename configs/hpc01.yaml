@@ -31,7 +31,7 @@ runtime:
 hardware: {gpu: NVIDIA GeForce RTX 5090, count: 1, vram_mib: 32607}
 
 evaluation:
-  epoch: hpc01-e3
+  epoch: hpc01-e4
   corpus:
     public: data/corpus/hpc01-public-v2.json     # public development fidelity set
   score:
@@ -51,8 +51,10 @@ evaluation:
     # Private rotating fidelity set: text never published during its epoch; results are PASS/FAIL.
     rule: >
       PASS if the candidate is audit-valid, its holdout RP-KL is at most gates.rp_kl_max, it keeps every
-      holdout needle BF16 retrieves, and -- when its public RP-KL gain over V0 is significant -- its holdout
-      gain over V0 is at least `min_gain_ratio` of the public gain.
+      holdout needle BF16 retrieves, and -- when its public drift gain over V0 is above the RP-KL floor (the
+      gain FG-2 credits) -- its holdout gain over V0 is at least `min_gain_ratio` of the public gain. Both
+      gains are relative and section-balanced (frontier.drift), so neither the holdout's lower drift nor one
+      public section decides the verdict. (hpc01-e3 compared absolute nats, and only for significant gains.)
     min_gain_ratio: 0.5
   screen:
     # Checks that run before any GPU time (evaluator/guards.py). See docs/guards.md.
@@ -84,6 +86,10 @@ frontier:
     prefill_tps: [2000.0, 20000.0]
     peak_gpu_gib: [14.0, 32.0]
   frontier_gain: FG-2
+  # hpc01-e4: RP-KL is section-balanced -- V0's RP-KL × the mean, over sections (each short category, and
+  # the long streams together), of the candidate's drift relative to V0's there. In hpc01-e3 the plain mean
+  # let the public maths stream, where V0 drifts most, decide most of every score.
+  drift: section-balanced
   # Measured maintainer candidates that seed the internal frontier. Miners compete against these;
   # resubmitting one earns nothing.
   seeds: results/feasibility/artifacts

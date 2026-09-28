@@ -517,17 +517,25 @@ class Evaluator:
                     print(f"[restore] fetched the published record into {ledger_dir}")
             except Exception as e:  # noqa: BLE001 - a box with no network still evaluates
                 print(f"[restore] could not fetch the published record: {e!r}")
+        # A new epoch changes the rules, not the history: who submitted first, and which PRs are merged, carry
+        # over from earlier epochs. Seeds are not carried: they come from the repository, judged by this epoch.
         src = ledger_dir / self.epoch
+        earlier = sorted((d for d in ledger_dir.iterdir() if d.is_dir() and d.name != self.epoch
+                          and (d / "observations").exists()), reverse=True) if ledger_dir.exists() else []
+        seeds = {p.name for p in self._artifacts(Path(self.args.seeds))}
         obs = 0
-        for f in sorted((src / "observations").glob("pr-*.json")) if (src / "observations").exists() else []:
-            if not (self.obs.dir / f.name).exists():
-                shutil.copyfile(f, self.obs.dir / f.name)
-                obs += 1
+        for epoch_dir in [src, *earlier]:
+            for f in sorted((epoch_dir / "observations").glob("pr-*.json")) if (epoch_dir / "observations").exists() else []:
+                if not (self.obs.dir / f.name).exists():
+                    shutil.copyfile(f, self.obs.dir / f.name)
+                    obs += 1
         acc = 0
-        for d in sorted((src / "accepted").iterdir()) if (src / "accepted").exists() else []:
-            if d.is_dir() and not (self.accepted / d.name).exists():
-                shutil.copytree(d, self.accepted / d.name)
-                acc += 1
+        for epoch_dir in [src, *earlier]:
+            for d in sorted((epoch_dir / "accepted").iterdir()) if (epoch_dir / "accepted").exists() else []:
+                carried = epoch_dir != src
+                if d.is_dir() and not (self.accepted / d.name).exists() and not (carried and d.name in seeds):
+                    shutil.copytree(d, self.accepted / d.name)
+                    acc += 1
         if obs or acc:
             print(f"[restore] {obs} first-seen record(s), {acc} accepted result(s) recovered")
 

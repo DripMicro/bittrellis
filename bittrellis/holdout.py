@@ -109,6 +109,55 @@ def inventory(private_dir: Path, tokenizer_json: Path) -> dict:
     return out
 
 
+TRANSFER_FAIL = "public gain does not carry over to the holdout"
+
+
+def transfer(track: Track, pub_inc: dict, pub_cand: dict, inc_pos: dict, cand_pos: dict) -> dict:
+    """Whether the candidate's public drift gain over the incumbent carries over to the holdout."""
+    ratio = track["evaluation"]["holdout"]["min_gain_ratio"]
+    if track["frontier"].get("drift") == "section-balanced":
+        # hpc01-e4: gains are relative and section-balanced on each side, so an easier holdout, or one public
+        # section where the incumbent drifts most, cannot decide the verdict. Every drift gain that FG-2 would
+        # credit (above the RP-KL floor) must carry over, whether or not it is statistically significant.
+        ps, hs = logits.balance_scale(pub_inc), logits.balance_scale(inc_pos)
+        pub = logits.paired_delta(logits.balanced(pub_inc, ps), logits.balanced(pub_cand, ps))
+        hold = logits.paired_delta(logits.balanced(inc_pos, hs), logits.balanced(cand_pos, hs))
+        base_pub, base_hold = logits.mean_drift(pub_inc), logits.mean_drift(inc_pos)
+        public_gain, holdout_gain = -pub["delta"] / base_pub, -hold["delta"] / base_hold
+        claims_gain = public_gain > track["frontier"]["epsilon_floor"]["rp_kl"] / base_pub
+    else:
+        pub = logits.paired_delta(pub_inc, pub_cand)          # candidate - incumbent, public
+        hold = logits.paired_delta(inc_pos, cand_pos)         # candidate - incumbent, holdout
+        public_gain, holdout_gain = -pub["delta"], -hold["delta"]
+        claims_gain = pub["significant"] and public_gain > 0
+    return {"public_gain": public_gain, "holdout_gain": holdout_gain, "public_ci95": pub["ci95"], "holdout_ci95": hold["ci95"],
+            "drift": track["frontier"].get("drift", "mean"), "fails": bool(claims_gain and holdout_gain < ratio * public_gain)}
+
+
+def recheck(track: Track, artifact: Path, private_dir: Path, incumbent_artifact: Path) -> str:
+    """Re-judge a candidate already scored on this holdout under the current rule, from its cached positions.
+
+    The other holdout checks (audit, RP-KL ceiling, needles) do not depend on the rule and keep their recorded
+    outcome; only the transfer test is recomputed. No GPU and no checkpoint are needed.
+    """
+    private_dir = Path(private_dir)
+    meta = json.loads((private_dir / "epoch.json").read_text())
+    name = json.loads((Path(artifact) / "candidate.json").read_text())["name"]
+    inc = json.loads((Path(incumbent_artifact) / "candidate.json").read_text())["name"]
+    path = private_dir / "results" / f"{name}.json"
+    old = json.loads(path.read_text())
+    t = transfer(track, dict(np.load(Path(incumbent_artifact) / "kl_positions.npz")),
+                 dict(np.load(Path(artifact) / "kl_positions.npz")),
+                 dict(np.load(private_dir / "work" / "incumbent" / inc / "kl_positions.npz")),
+                 dict(np.load(private_dir / "work" / "candidate" / name / "kl_positions.npz")))
+    reasons = [r for r in old["reasons"] if r != TRANSFER_FAIL] + ([TRANSFER_FAIL] if t["fails"] else [])
+    verdict = "FAIL" if reasons else "PASS"
+    path.write_text(json.dumps({**old, "verdict": verdict, "reasons": reasons, **{k: v for k, v in t.items() if k != "fails"},
+                                "rechecked_from": old["verdict"]}, indent=2) + "\n")
+    (Path(artifact) / "holdout.json").write_text(json.dumps({"epoch": meta["epoch"], "result": verdict}) + "\n")
+    return verdict
+
+
 def check(si: SparkInfer, track: Track, checkpoint: Path, artifact: Path, private_dir: Path,
           incumbent_checkpoint: Path, incumbent_artifact: Path, log=print) -> str:
     """Score a candidate (and, once per epoch, the incumbent) on the private holdout; write PASS/FAIL."""
@@ -151,18 +200,15 @@ def check(si: SparkInfer, track: Track, checkpoint: Path, artifact: Path, privat
             reasons.append(f"needles:{stream}")
     pub_inc = dict(np.load(Path(incumbent_artifact) / "kl_positions.npz"))
     pub_cand = dict(np.load(Path(artifact) / "kl_positions.npz"))
-    pub = logits.paired_delta(pub_inc, pub_cand)          # candidate - incumbent, public
-    hold = logits.paired_delta(inc_pos, cand_pos)         # candidate - incumbent, holdout
-    public_gain, holdout_gain = -pub["delta"], -hold["delta"]
-    ratio = track["evaluation"]["holdout"]["min_gain_ratio"]
-    if pub["significant"] and public_gain > 0 and holdout_gain < ratio * public_gain:
-        reasons.append("public gain does not carry over to the holdout")
+    t = transfer(track, pub_inc, pub_cand, inc_pos, cand_pos)
+    if t["fails"]:
+        reasons.append(TRANSFER_FAIL)
     verdict = "FAIL" if reasons else "PASS"
 
     (results / f"{cand_name}.json").write_text(json.dumps({
         "epoch": meta["epoch"], "verdict": verdict, "reasons": reasons,
         "candidate_rp_kl": cand_q["rp_kl"], "incumbent_rp_kl": inc_q["rp_kl"],
-        "public_gain": public_gain, "holdout_gain": holdout_gain, "public_ci95": pub["ci95"], "holdout_ci95": hold["ci95"],
+        **{k: v for k, v in t.items() if k != "fails"},
     }, indent=2) + "\n")
     (Path(artifact) / "holdout.json").write_text(json.dumps({"epoch": meta["epoch"], "result": verdict}) + "\n")
     return verdict

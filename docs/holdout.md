@@ -43,12 +43,27 @@ bittrellis holdout check models/candidates/<name> --private /secure/holdout-2026
 Build fails loudly if a short category has under 4,096 tokens. The PR bot runs the check when started
 with `--private`; V0 is scored once per epoch, cached.
 
-## PASS rule (epoch hpc01-e3)
+## PASS rule (epoch hpc01-e4)
 
 1. audit passed;
 2. holdout RP-KL ≤ `gates.rp_kl_max` (0.30);
 3. keeps every holdout needle BF16 retrieves;
-4. **transfer:** if public RP-KL gain over V0 is significant (paired 95% interval excludes 0), holdout gain over V0 is ≥ `evaluation.holdout.min_gain_ratio` (0.5) of it.
+4. **transfer:** if the public drift gain over V0 is above the RP-KL floor (the gain FG-2 would credit), the
+   holdout gain over V0 is ≥ `evaluation.holdout.min_gain_ratio` (0.5) of it. Both gains are *relative* and
+   *section-balanced* ([frontier.md](frontier.md#section-balanced-drift-hpc01-e4)).
+
+Why it changed from hpc01-e3, which compared absolute nats and only for significant public gains:
+
+- the holdout text drifts about 2.8× less than the public text, so even a gain that carried over fully
+  showed about 36% in absolute terms, under the 50% bar;
+- the public maths stream (GSM8K worked answers), where V0 drifts most, carried most of many results'
+  gains, and those gains did not appear on the holdout even for untuned seeds;
+- a gain too uncertain to be significant skipped the comparison entirely, so weaker evidence faced the
+  easier test.
+
+Re-judged under hpc01-e4 from the cached holdout positions, V3 and #15 pass and #17 fails; every other
+result checked keeps its verdict. `bittrellis holdout recheck` re-judges a result already scored on this
+holdout without a GPU.
 
 A paid tier requires an explicit PASS: an evaluator without a private holdout labels results `bt:provisional`. Ranking uses reproducible *public* RP-KL; the holdout only rejects gains that do not carry over, so
 miners can optimize public fidelity only until it stops generalizing.

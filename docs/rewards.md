@@ -66,7 +66,7 @@ the record outlives it. Re-derive any score yourself:
 
 ```bash
 git clone https://github.com/coderbench/bittrellis-ledger && cd bittrellis-ledger
-bittrellis frontier hpc01-e3/accepted <your artifact>
+bittrellis frontier hpc01-e4/accepted <your artifact>
 ```
 
 The private holdout never appears there: records carry PASS or FAIL only.

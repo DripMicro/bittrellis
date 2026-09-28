@@ -8,7 +8,7 @@ from pathlib import Path
 
 import numpy as np
 
-from ..eval.logits import paired_delta
+from ..eval.logits import balance_scale, balanced, mean_drift, paired_delta
 from ..track import REPO_ROOT, Track
 from .pareto import FG_VERSION, OBJECTIVES, Row, apply_gates, rank
 
@@ -38,18 +38,35 @@ def load_row(art: Path) -> Row | None:
     )
 
 
+def drift_scale(track: Track, incumbent: Path | None) -> dict[str, float] | None:
+    """Section weights for balanced drift (`frontier.drift: section-balanced`), taken from the incumbent's positions."""
+    f = Path(incumbent) / "kl_positions.npz" if incumbent else None
+    if track["frontier"].get("drift") != "section-balanced" or f is None or not f.exists():
+        return None
+    return balance_scale(dict(np.load(f)))
+
+
+def apply_balance(rows: list[Row], scale: dict[str, float] | None) -> None:
+    """Replace each row's RP-KL with section-balanced drift; the plain mean stays in `extra['rp_kl_raw']`."""
+    for r in rows:
+        f = Path(r.extra["path"]) / "kl_positions.npz"
+        if scale and f.exists() and "rp_kl_raw" not in r.extra:
+            r.extra["rp_kl_raw"] = r.rp_kl
+            r.rp_kl = mean_drift(balanced(dict(np.load(f)), scale))
+
+
 class PairedQuality:
     """RP-KL comparator: materially different only beyond the floor AND with a significant paired delta."""
 
-    def __init__(self, floor: float):
-        self.floor = floor
+    def __init__(self, floor: float, scale: dict[str, float] | None = None):
+        self.floor, self.scale = floor, scale
         self._arrays: dict[str, dict] = {}
         self._cache: dict[tuple[str, str], dict] = {}
 
     def _positions(self, row: Row) -> dict:
         path = row.extra["path"]
         if path not in self._arrays:
-            self._arrays[path] = dict(np.load(Path(path) / "kl_positions.npz"))
+            self._arrays[path] = balanced(dict(np.load(Path(path) / "kl_positions.npz")), self.scale)
         return self._arrays[path]
 
     def delta(self, a: Row, b: Row) -> dict:
@@ -82,9 +99,11 @@ def load_rows(paths: list[Path], track: Track) -> tuple[list[Row], PairedQuality
     rows = [r for r in (load_row(a) for a in collect_artifacts(paths)) if r is not None]
     incumbent_name = track["frontier"]["incumbent"]
     incumbent = next((r for r in rows if r.name == incumbent_name), None)
+    scale = drift_scale(track, Path(incumbent.extra["path"]) if incumbent else None)
+    apply_balance(rows, scale)
     for r in rows:
         apply_gates(r, track["gates"], incumbent.tasks if incumbent and r is not incumbent else None)
-    cmp = PairedQuality(track["frontier"]["epsilon_floor"]["rp_kl"])
+    cmp = PairedQuality(track["frontier"]["epsilon_floor"]["rp_kl"], scale)
     rank(rows, track["frontier"]["box"], track["frontier"]["epsilon_floor"], cmp)
     return rows, cmp
 
@@ -110,7 +129,7 @@ def render_table(rows: list[Row]) -> str:
 
 def row_dict(r: Row) -> dict:
     return {
-        "id": r.id, "name": r.name, "kind": r.kind, "rp_kl": r.rp_kl, "top1": r.top1,
+        "id": r.id, "name": r.name, "kind": r.kind, "rp_kl": r.rp_kl, "rp_kl_raw": r.extra.get("rp_kl_raw", r.rp_kl), "top1": r.top1,
         "decode_tps": r.decode_tps, "decode_spread": r.decode_spread, "prefill_tps": r.prefill_tps,
         "prefill_spread": r.prefill_spread, "peak_gpu_gib": r.peak_gpu_gib,
         "resident_after_load_gib": r.extra.get("resident_after_load_gib"), "peak_host_gib": r.extra.get("peak_host_gib"),
@@ -141,7 +160,9 @@ def compare(a: Path, b: Path, track: Track) -> dict:
     ra, rb = load_row(a), load_row(b)
     if ra is None or rb is None:
         raise ValueError("both artifacts need quality.json and performance.json")
-    cmp = PairedQuality(track["frontier"]["epsilon_floor"]["rp_kl"])
+    scale = drift_scale(track, REPO_ROOT / track["frontier"]["seeds"] / track["frontier"]["incumbent"])
+    apply_balance([ra, rb], scale)
+    cmp = PairedQuality(track["frontier"]["epsilon_floor"]["rp_kl"], scale)
     d = cmp.delta(ra, rb)
     return {
         "a": ra.name, "b": rb.name,

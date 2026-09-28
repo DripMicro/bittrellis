@@ -38,7 +38,7 @@ rule: `quantizer: gptq_nvfp4`, optionally with `params: {damp: 0.01, blocksize: 
 | Allowed | Not allowed (audit or reviewers reject) |
 |---|---|
 | read the unit's BF16 weight (`ctx.base`) | read or emit other tensors' bytes |
-| read the pinned public calibration manifest (`ctx.calibration`) | fetch network data at build time |
+| read the pinned public calibration manifest (`ctx.calibration`) — **not provided yet**: it is always `None`, so calibrated encoders cannot work in this epoch | fetch network data at build time |
 | search scale, clipping, rounding, act-order, error feedback inside the tensor | move scales into norms or neighbouring Linears (SmoothQuant/AWQ-style migration) |
 | keep cross-unit state (`ctx.state`) if `replay_mode = "sequential"` | depend on wall-clock time, unseeded randomness or GPU nondeterminism |
 | emit NVFP4 (ModelOpt layout) or FP8 (E4M3 + one BF16 scale per row) | emit a format the loader silently converts ([precision_space.md](precision_space.md)) |
