@@ -50,32 +50,49 @@ def _chat(port: int, prompt: str, max_tokens: int) -> str:
 
 
 def run_tasks(si: SparkInfer, model_dir: Path, out_dir: Path, tier: str, ctx: int, port: int = 18080,
-              log=print) -> dict:
+              log=print, draft_model: Path | None = None) -> dict:
+    """Run the suite one request at a time against a deterministic server on `model_dir`.
+
+    One at a time on purpose: concurrent requests are batched, and batching changed 70 of 784 answers
+    between two identical runs even in deterministic mode (Qwen3.8 is not SparkInfer's qualified
+    batch-invariant model). `draft_model` turns on DSpark, which answers identically, only faster.
+    """
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     rq = _load_suite(si)
     items = rq.load(set(), 0, "" if tier == "full" else tier)  # "full": every item SparkInfer ships (784)
-    proc = si.start_server(model_dir, port, ctx, out_dir / "server.log")
+    # Deterministic mode makes answers bit-reproducible (SparkInfer server/README.md, "Determinism"). Without
+    # it, two runs of one model differ on dozens of the 784 answers, which the paired task guard compares.
+    env = {"SPARKINFER_DETERMINISTIC": "1"}
+    if draft_model and Path(draft_model).exists():
+        env["SPARKINFER_DRAFT_MODEL"] = str(draft_model)
+    elif draft_model:
+        log(f"[tasks] DSpark drafter {draft_model} missing: running without it (same answers, slower)")
+    proc = si.start_server(model_dir, port, ctx, out_dir / "server.log", env=env)
     t0 = time.time()
     jsonl = out_dir / "tasks.jsonl"
+
+    def one(it: dict) -> dict:
+        b = it["benchmark"]
+        try:
+            text = _chat(port, rq.build_prompt(it), MAX_TOKENS.get(b, 512))
+            r = rq.scorers.SCORERS[b](it, text)
+        except Exception as e:  # noqa: BLE001 - one malformed item must not stop the guard
+            text, r = "", {"score": 0.0, "pass": False, "detail": "ERROR: " + repr(e)}
+        return {"id": it["id"], "benchmark": b, "pass": r["pass"], "score": r["score"], "detail": r["detail"],
+                "output": text[-2000:]}
+
     try:
         with open(jsonl, "w") as fh:
             for it in items:
-                b = it["benchmark"]
-                try:
-                    text = _chat(port, rq.build_prompt(it), MAX_TOKENS.get(b, 512))
-                    r = rq.scorers.SCORERS[b](it, text)
-                except Exception as e:  # noqa: BLE001 - one malformed item must not stop the guard
-                    text, r = "", {"score": 0.0, "pass": False, "detail": "ERROR: " + repr(e)}
-                fh.write(json.dumps({"id": it["id"], "benchmark": b, "pass": r["pass"], "score": r["score"],
-                                     "detail": r["detail"], "output": text[-2000:]}) + "\n")
+                fh.write(json.dumps(one(it)) + "\n")
     finally:
         proc.terminate()
         try:
             proc.wait(timeout=60)
         except subprocess.TimeoutExpired:
             proc.kill()
-    log(f"[tasks] {len(items)} items in {time.time() - t0:.0f}s")
+    log(f"[tasks] {len(items)} items in {time.time() - t0:.0f}s{' with DSpark' if 'SPARKINFER_DRAFT_MODEL' in env else ''}")
     return summarize_tasks(jsonl)
 
 

@@ -916,10 +916,10 @@ class Evaluator:
                 notes.append("Tasks and private holdout skipped: they can only fail a result, and this one is already "
                              f"{'dominated' if label == 'dominated' else 'invalid'} on the measured objectives.")
                 return self._report(pr, cand, art, ckpt, frontier, label, notes, screen, refs, skipped, finish, work)
-        # ---- stage 3: tasks and holdout ----
+        # ---- stage 3: holdout, then tasks ----
+        # The holdout runs first: it takes a quarter of the time, and a result that fails it is rejected
+        # whatever the tasks show, so its 784 task questions would be wasted GPU time.
         cand = json.loads((art / "candidate.json").read_text())
-        if run(ev + ["--stages", "tasks"] + reuse, REPO_ROOT, log) != 0:
-            raise RuntimeError("tasks stage failed")
         if self.args.private:
             incumbent = Path(self.args.seeds) / self.track["frontier"]["incumbent"]
             (art / "holdout.json").unlink(missing_ok=True)
@@ -934,6 +934,11 @@ class Evaluator:
             (art / "timings.json").write_text(json.dumps(timings) + "\n")
         else:
             notes.append("No private holdout on this evaluator: the result is provisional and gets no paid tier.")
+        if self.args.private and json.loads((art / "holdout.json").read_text()).get("result") == "FAIL":
+            skipped = ["tasks"]
+            notes.append("Tasks skipped: the result failed the private holdout, which rejects it whatever the tasks show.")
+        elif run(ev + ["--stages", "tasks"] + reuse, REPO_ROOT, log) != 0:
+            raise RuntimeError("tasks stage failed")
         frontier, row, refs = self._rank(me, art, open_prs, work)
         return self._report(pr, cand, art, ckpt, frontier, status_from_row(row), notes, screen, refs, skipped, finish, work)
 

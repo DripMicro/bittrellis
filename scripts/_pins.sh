@@ -9,7 +9,8 @@ lock = json.load(open(f"{root}/configs/sources.lock.json"))["sources"]
 r2 = t["external_references"]["R2"]
 pins = {"SPARKINFER_REPO": t["runtime"]["repo"], "SPARKINFER_COMMIT": t["runtime"]["commit"],
         "SPARKINFER_CMAKE_ARGS": " ".join(t["runtime"]["cmake_args"]), "SPARKINFER_TARGETS": " ".join(t["runtime"]["targets"]),
-        "LLAMACPP_COMMIT": r2["llama_cpp_commit"], "R2_FILE": r2["file"]}
+        "LLAMACPP_COMMIT": r2["llama_cpp_commit"], "R2_FILE": r2["file"],
+        "DSPARK_REPO": t["runtime"]["dspark"]["repo"], "DSPARK_REVISION": t["runtime"]["dspark"]["revision"]}
 for sid, s in lock.items():
     pins[f"{sid.upper()}_REPO"] = s["repo"]
     pins[f"{sid.upper()}_REVISION"] = s["revision"]

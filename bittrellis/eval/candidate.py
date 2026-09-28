@@ -171,7 +171,9 @@ def evaluate(track: Track, si: SparkInfer, model_dir: Path, out: Path, corpus: d
     if "tasks" in stages:
         tcfg = track["evaluation"]["tasks"]
         t0 = time.time()
-        result["tasks"] = run_tasks(si, model_dir, out / "tasks", tcfg["tier"], tcfg["server_ctx"], log=log)
+        dspark = track["runtime"].get("dspark")
+        result["tasks"] = run_tasks(si, model_dir, out / "tasks", tcfg["tier"], tcfg["server_ctx"], log=log,
+                                    draft_model=REPO_ROOT / dspark["dir"] if dspark else None)
         timings["tasks_seconds"] = round(time.time() - t0, 1)
         _write(out / "tasks.json", result["tasks"])
     if "performance" in stages:

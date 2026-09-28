@@ -27,6 +27,10 @@ runtime:
   # Every SPARKINFER_* variable is removed before a run; only these are applied. Runtime knobs are
   # part of the runtime, not of the candidate.
   env: {}
+  # DSpark speculative decoding for the task suite: byte-identical answers to plain greedy decoding
+  # (SparkInfer CHANGELOG; checked on V0: 120/120 identical), about 1.45x faster over the 784 items.
+  dspark: {repo: gittensor-model-hub/Qwen3.8-27B-DSpark-NVFP4, revision: eba1ac5a66c74902eaa95a4000a7c5eda96d8e95,
+           dir: models/Qwen3.8-27B-DSpark-NVFP4}
 
 hardware: {gpu: NVIDIA GeForce RTX 5090, count: 1, vram_mib: 32607}
 

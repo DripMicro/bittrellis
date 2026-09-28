@@ -63,13 +63,16 @@ def bot(tmp_path, monkeypatch):
     stages_run: list[tuple[int, str]] = []
     recipes: dict[str, tuple[str, Path, dict]] = {}   # sha -> (manifest yaml, seed artifact to replay, perf overrides)
 
+    holdout = {"result": "PASS"}
+
     def fake_run(cmd, cwd, log, timeout=0):
         if cmd[0] == "git":
             return 0
         sub = cmd[3]
         if sub == "holdout":
             art = Path(cmd[cmd.index("--artifact") + 1])
-            (art / "holdout.json").write_text(json.dumps({"epoch": "test", "result": "PASS"}))
+            stages_run.append((int(art.parent.name.split("-")[0]), "holdout"))
+            (art / "holdout.json").write_text(json.dumps({"epoch": "test", "result": holdout["result"]}))
             return 0
         work = Path(cmd[4]).parent if sub in ("manifest", "build") else Path(cmd[cmd.index("--out") + 1]).parent
         sha = next(s for s in recipes if work.name.endswith(s[:12]))
@@ -113,7 +116,7 @@ def bot(tmp_path, monkeypatch):
     args = SimpleNamespace(root=str(tmp_path / "eval"), base="/nonexistent", shipped="/nonexistent", unsloth="/nonexistent",
                            sparkinfer="/nonexistent", reference="/nonexistent", seeds=str(SEEDS), private="/nonexistent-private",
                            keep_checkpoints=False, ledger=str(tmp_path / "ledger"), ledger_remote=None)
-    return SimpleNamespace(args=args, recipes=recipes, stages=stages_run)
+    return SimpleNamespace(args=args, recipes=recipes, stages=stages_run, holdout=holdout)
 
 
 def pr(number, author, sha):
@@ -279,3 +282,12 @@ def test_a_replacement_box_recovers_priority_and_accepted_results(bot, tmp_path)
     # score: the published record is intact and still says what it earned
     record = json.loads(next((Path(bot.args.ledger) / epoch / "results").glob("pr-000001-*.json")).read_text())
     assert record["tier"] == tier and record["first_seen"] == first_seen
+
+
+def test_a_holdout_failure_is_known_before_the_task_suite_runs(bot):
+    sha = _one_frontier_pr(bot)
+    bot.holdout["result"] = "FAIL"
+    gh = MergingGitHub([pr(1, "alice", sha)])
+    pr_bot.Evaluator(gh, bot.args).run_once()
+    assert (1, "holdout") in bot.stages and (1, "tasks") not in bot.stages     # 784 questions not spent on a reject
+    assert "eval:REJECT" in gh.labels[1] and gh.merged == []
