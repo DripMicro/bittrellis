@@ -166,3 +166,14 @@ def test_merge_first_is_not_promised_while_merging_is_off():
 
 def test_the_closing_comment_is_plain():
     assert "earn" not in pr_bot.CLOSE_COMMENT.lower() and ":" not in pr_bot.CLOSE_COMMENT
+
+
+def test_error_summary_shows_only_the_failing_steps_error():
+    build = ("\n$ python -m bittrellis.cli manifest m.yaml\n✓ m.yaml: gdn  id=d2cb\n"
+             "\n$ python -m bittrellis.cli build m.yaml --out ckpt\nTraceback (most recent call last):\n"
+             '  File "build.py", line 168, in build\n    writer.add(t.name)\n'
+             "OSError: [Errno 28] No space left on device\n[build] gdn (d2cb): 2103 tensors -> ckpt\n[build]   250/2103 tensors, 16s\n")
+    assert pr_bot.error_summary(build) == "OSError: [Errno 28] No space left on device"
+    invalid = "\n$ [sandbox:bt-sandbox] python -m bittrellis.cli manifest m.yaml\n✗ m.yaml: unknown quantizer 'x'\n"
+    assert pr_bot.error_summary(invalid) == "✗ m.yaml: unknown quantizer 'x'"
+    assert pr_bot.error_summary("\n$ python -m x\n") == "(no output)"

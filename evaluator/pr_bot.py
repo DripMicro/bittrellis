@@ -51,6 +51,7 @@ import fnmatch
 import hashlib
 import json
 import os
+import re
 import secrets
 import shutil
 import subprocess
@@ -223,6 +224,17 @@ def run(cmd: list[str], cwd: Path, log: Path, timeout: int = 6 * 3600) -> int:
         fh.write(f"\n$ {' '.join(cmd)}\n")
         fh.flush()
         return subprocess.run(cmd, cwd=cwd, stdout=fh, stderr=subprocess.STDOUT, timeout=timeout).returncode
+
+
+def error_summary(log_text: str, max_lines: int = 5) -> str:
+    """The failing step's error in a few lines, for a PR comment; the full log stays on the evaluator."""
+    step = log_text.rsplit("\n$ ", 1)[-1].splitlines()[1:]  # output of the last command run
+    lines = [ln.rstrip() for ln in step if ln.strip()]
+    if raised := [ln for ln in lines if re.match(r"[\w.]+(Error|Exception|Exit|Interrupt)\b", ln)]:
+        lines = raised[-1:]  # the exception itself, not the traceback frames or progress printed after it
+    elif flagged := [ln for ln in lines if ln.lstrip().startswith("✗") or "error" in ln.lower()]:
+        lines = flagged
+    return "\n".join(ln[:300] for ln in lines[-max_lines:]) or "(no output)"
 
 
 # ── pure decisions (unit-tested) ───────────────────────────────────────────────────────────────
@@ -797,7 +809,7 @@ class Evaluator:
         ids = utr / "ids.json"
         if xrun(self.py + ["manifest", str(manifest), "--ids-out", str(ids), "--shipped", self.args.shipped], code, log) != 0 or not ids.exists():
             return finish("invalid", "invalid", "BitTrellis evaluator: the manifest does not validate:\n\n```\n"
-                          + log.read_text()[-3000:] + "\n```")
+                          + error_summary(log.read_text()) + "\n```")
         ident = json.loads(ids.read_text())
         cid, keys = ident["id"], ident["keys"]
         if candidate_hash_keys(self.track.id, keys) != cid:
@@ -841,7 +853,7 @@ class Evaluator:
             if xrun(self.py + ["fingerprint", "--seed", str(self.probe_seed), "--out", str(pr_probe), "--repeat-out", str(pr_repeat)],
                    code, log, timeout=1800) != 0:
                 return finish("build", "build", "BitTrellis evaluator: the quantizer probe failed to run:\n\n```\n"
-                              + log.read_text()[-3000:] + "\n```", screen=screen)
+                              + error_summary(log.read_text()) + "\n```", screen=screen)
             main_fp = F.by_quantizer(F.probe(None, self.probe_seed))
             mine, again = F.by_quantizer(F.load_probe(pr_probe)), F.by_quantizer(F.load_probe(pr_repeat))
             new = {ref: fp for ref, fp in mine.items() if ref not in main_fp}
@@ -873,7 +885,7 @@ class Evaluator:
             if xrun(self.py + ["build", str(manifest), "--out", str(out)] + (["--no-verify"] if untrusted else []) + self.env_args,
                     code, log) != 0:
                 return finish("build", "build", "BitTrellis evaluator: the checkpoint did not build:\n\n```\n"
-                              + log.read_text()[-3000:] + "\n```", screen=screen)
+                              + error_summary(log.read_text()) + "\n```", screen=screen)
             if untrusted:
                 self.sandbox.seal(out, ckpt)
 
