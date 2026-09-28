@@ -59,7 +59,7 @@ pip install -q "transformers>=5.0" accelerate
 python -c "import torch; assert torch.cuda.is_available(); print('torch', torch.__version__, 'sees the GPU')"
 
 step "pinned models (~90 GiB: base 52, shipped 17, unsloth 22)"
-scripts/setup_models.sh base shipped unsloth
+scripts/setup_models.sh base shipped unsloth dspark
 
 step "SparkInfer at the pinned commit, plus the scorer"
 scripts/setup_sparkinfer.sh
