@@ -136,3 +136,27 @@ def test_comment_shows_the_nearest_frontier_results_and_bolds_only_clear_wins():
     assert "`near` (#5)" in body and "`far`" in body and "`gone`" not in body   # off-frontier rows are never shown
     assert "**0.1200**" in body and "**20.50**" in body and "**12,000**" not in body   # V0 is faster at prefill
     assert "Epoch `e2`" in pr_bot.render_comment("x", "cid", None, None, "gate", ["failed"], epoch="e2")
+
+
+def test_merge_first_is_not_promised_while_merging_is_off():
+    from types import SimpleNamespace
+
+    class GH:
+        def __init__(self):
+            self.added, self.removed = [], []
+
+        def add_label(self, n, name):
+            self.added.append(n)
+
+        def remove_label(self, n, name):
+            self.removed.append(n)
+
+    prs = [{"number": 7, "head": {"sha": "a" * 40}, "labels": [{"name": "bt:merge-first"}]},
+           {"number": 8, "head": {"sha": "b" * 40}, "labels": []}]
+    state = {"7-" + "a" * 12: {"status": "frontier", "tier": "S", "gain": 0.001, "first_seen": "t1"},
+             "8-" + "b" * 12: {"status": "frontier", "tier": "XS", "gain": 0.0002, "first_seen": "t2"}}
+    for merging, added, removed in ((True, [], []), (False, [], [7])):
+        ev = pr_bot.Evaluator.__new__(pr_bot.Evaluator)
+        ev.gh, ev.state, ev.args = GH(), state, SimpleNamespace(auto_merge=merging)
+        assert ev.mark_merge_first(prs) == 7
+        assert (ev.gh.added, ev.gh.removed) == (added, removed)

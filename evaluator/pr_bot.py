@@ -622,13 +622,17 @@ class Evaluator:
         return sorted(p.name for p in self.accepted.iterdir()) if self.accepted.exists() else []
 
     def mark_merge_first(self, open_prs: list[dict]) -> int | None:
-        """One `bt:merge-first` per pass: the result that is merged next, and the number it is on."""
+        """One `bt:merge-first` per pass: the result that is merged next, and the number it is on.
+
+        With merging off nothing is merged next, so the label is removed everywhere rather than promised.
+        """
         entries = {pr["number"]: self.state.get(f"{pr['number']}-{pr['head']['sha'][:12]}", {}) for pr in open_prs}
         best = pick_merge_first([{**e, "pr": n} for n, e in entries.items() if e.get("status") == "frontier" and "first_seen" in e])
         name = EXTRA_LABELS["merge-first"][0]
+        merging = getattr(self.args, "auto_merge", False)
         for pr in open_prs:
             has = name in {lab["name"] for lab in pr["labels"]}
-            if best and pr["number"] == best["pr"]:
+            if merging and best and pr["number"] == best["pr"]:
                 if not has:
                     self.gh.add_label(pr["number"], name)
             elif has:

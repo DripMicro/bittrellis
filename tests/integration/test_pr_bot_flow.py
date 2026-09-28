@@ -142,7 +142,8 @@ def test_frontier_duplicate_near_copy_and_staged_skip(bot):
     ev.run_once()
 
     paid = {f"eval:{t}" for t in pr_bot.TIERS}
-    assert {"bt:frontier", "bt:merge-first"} <= set(gh.labels[1]) and len(paid & set(gh.labels[1])) == 1
+    assert "bt:frontier" in gh.labels[1] and len(paid & set(gh.labels[1])) == 1
+    assert "bt:merge-first" not in gh.labels[1]                                # merging is off in this run
     assert set(gh.labels[2]) == {"bt:duplicate", "eval:none"}                  # not measured at all
     assert set(gh.labels[3]) == {"bt:derivative", "bt:dominated", "eval:none"}
     assert set(gh.labels[4]) == {"bt:dominated", "eval:none"}
@@ -168,7 +169,8 @@ def test_frontier_duplicate_near_copy_and_staged_skip(bot):
     ev.run_once()
     assert ev.state[f"3-{c[:12]}"]["status"] == "frontier"
     assert (3, "tasks") in bot.stages
-    assert {"bt:frontier", "bt:merge-first"} <= set(gh.labels[3]) and len(paid & set(gh.labels[3])) == 1
+    assert "bt:frontier" in gh.labels[3] and len(paid & set(gh.labels[3])) == 1
+    assert "bt:merge-first" not in gh.labels[3]                                # merging is off in this run
     assert "eval:none" not in gh.labels[3]
 
 
