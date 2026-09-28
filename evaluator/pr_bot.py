@@ -315,6 +315,8 @@ def pick_merge_first(candidates: list[dict]) -> dict | None:
 # beats them is usually merged or a seed and never goes away. The rare revival -- a PR they were ranked
 # against closes -- is left to the author, who can reopen or resubmit.
 CLOSED_STATUSES = REJECTED | {"duplicate", "dominated"}
+CLOSE_COMMENT = ("Closed automatically. The evaluation above explains why this version is not merged. Closing does not "
+                 "affect your credibility on this repository, and a revised recipe is welcome as a new PR.")
 
 
 def to_close(open_prs: list[dict], state: dict) -> list[int]:
@@ -706,9 +708,7 @@ class Evaluator:
                 print(f"[close] #{number}: not closed ({e!r})")
                 continue
             try:
-                self.gh.comment(number, "Closed automatically: this head cannot earn, and an open PR counts against "
-                                        "your open-PR limit on Gittensor. Closing does not affect your credibility on this "
-                                        "repository (`min_credibility` is 0). A revised recipe is welcome as a new PR.")
+                self.gh.comment(number, CLOSE_COMMENT)
             except urllib.error.URLError:
                 pass
             print(f"[close] #{number} closed")

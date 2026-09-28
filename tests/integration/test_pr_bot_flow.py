@@ -161,7 +161,7 @@ def test_frontier_duplicate_near_copy_and_staged_skip(bot):
     assert (4, "tasks") not in bot.stages and (3, "tasks") not in bot.stages  # dominated: tasks and holdout skipped
     assert (1, "tasks") in bot.stages
     assert any("Ranked with earlier open PRs on the frontier: #1" in c for c in gh.comments[3])
-    assert sorted(gh.closed) == [2, 3, 4] and "Closed automatically" in gh.comments[3][-1]   # none of them can earn
+    assert sorted(gh.closed) == [2, 3, 4] and gh.comments[3][-1] == pr_bot.CLOSE_COMMENT   # none of them can be merged
     assert "Claude" not in json.dumps(gh.comments)
 
     # the public score record: one write-once record per evaluated head, plus the frontier and README

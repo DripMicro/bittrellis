@@ -162,3 +162,7 @@ def test_merge_first_is_not_promised_while_merging_is_off():
         ev.gh, ev.state, ev.args = GH(), state, SimpleNamespace(auto_merge=merging)
         assert ev.mark_merge_first(prs) == 7
         assert (ev.gh.added, ev.gh.removed) == (added, removed)
+
+
+def test_the_closing_comment_is_plain():
+    assert "earn" not in pr_bot.CLOSE_COMMENT.lower() and ":" not in pr_bot.CLOSE_COMMENT
