@@ -1133,13 +1133,14 @@ class Evaluator:
             e["references"], e["accepted"], e["speeds"] = refs, self._accepted_names(), self.speed_stamp
             tier = tier_for(label, row.get("frontier_gain"), REWARDS["tiers_fg2"])
             if label == e["status"] and tier == e.get("tier"):
+                e["gain"], e["row"] = row.get("frontier_gain") or 0.0, row  # same tier, new FG-2: it orders merges
                 continue
             if label in ("frontier", "provisional") and e.get("skipped"):
                 e["status"] = "resume"  # measured tasks and holdout never ran; the next pass rebuilds and finishes it
                 self.gh.comment(pr["number"], f"{score_header('queued')}\n\nBitTrellis evaluator: the results this PR was ranked against have "
                                 "changed, so it is no longer dominated. Resuming: tasks and private holdout.")
                 continue
-            e["status"], e["tier"], e["gain"] = label, tier, row.get("frontier_gain") or 0.0
+            e["status"], e["tier"], e["gain"], e["row"] = label, tier, row.get("frontier_gain") or 0.0, row
             self.gh.set_status_label(pr["number"], label)
             self.gh.set_tier_label(pr["number"], tier)
             self.gh.comment(pr["number"], f"{score_header(label, row)}\n\nBitTrellis evaluator: re-ranked after the results it is "

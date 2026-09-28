@@ -342,3 +342,17 @@ def test_a_faster_machine_is_not_paid_as_a_faster_recipe(bot, tmp_path, monkeypa
     assert ev.speeds.has(json.loads((SEEDS / "V0-baseline-rebuild" / "candidate.json").read_text())["id"])
     assert "measured on this evaluator's machine" in gh.comments[1][-2]   # the result, then the closing comment
     assert (Path(bot.args.ledger) / EPOCH / "speeds").is_dir()    # published, so the ranking can be re-derived
+
+
+def test_a_rerank_in_the_same_tier_still_updates_the_score_that_orders_merges(bot, monkeypatch):
+    sha = _one_frontier_pr(bot)
+    bot.args.auto_merge = False
+    gh = FakeGitHub([pr(1, "alice", sha)])
+    ev = pr_bot.Evaluator(gh, bot.args)
+    ev.run_once()
+    e = ev.state[f"1-{sha[:12]}"]
+    tier, new = e["tier"], e["gain"] * 0.99                        # re-ranked: a little less, same tier
+    monkeypatch.setattr(ev, "_rank", lambda *a: ({}, {**e["row"], "frontier_gain": new}, []))
+    e["speeds"] = "measured on another machine"                   # forces the re-rank
+    ev.rerank(gh.prs)
+    assert e["tier"] == tier and e["gain"] == new and e["row"]["frontier_gain"] == new
