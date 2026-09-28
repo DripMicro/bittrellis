@@ -884,6 +884,7 @@ class Evaluator:
             # the sandbox cannot write the sources' verification cache; the trusted audit verifies every source
             if xrun(self.py + ["build", str(manifest), "--out", str(out)] + (["--no-verify"] if untrusted else []) + self.env_args,
                     code, log) != 0:
+                shutil.rmtree(out, ignore_errors=True)  # a partial checkpoint can fill the disk for every later PR
                 return finish("build", "build", "BitTrellis evaluator: the checkpoint did not build:\n\n```\n"
                               + error_summary(log.read_text()) + "\n```", screen=screen)
             if untrusted:
