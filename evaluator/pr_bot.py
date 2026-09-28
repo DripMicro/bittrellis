@@ -68,6 +68,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import guards as G  # noqa: E402
 from ledger import Ledger  # noqa: E402
+from speeds import BoxSpeeds, references  # noqa: E402
 
 MANIFEST_GLOB = "manifests/*.yaml"
 CODE_GLOBS = ("bittrellis/quantizers/*", "bittrellis/search.py", "tests/*")
@@ -518,6 +519,30 @@ class Evaluator:
         self.py = [sys.executable, "-m", "bittrellis.cli"]
         self.env_args = ["--base", args.base, "--shipped", args.shipped, "--unsloth", args.unsloth]
         self.sources = {"base": Path(args.base), "gittensor_nvfp4": Path(args.shipped), "unsloth_nvfp4": Path(args.unsloth)}
+        fr = self.track["frontier"]
+        self.speeds = BoxSpeeds(self.root, lambda *a, **k: run(*a, **k), self.py, self.env_args, args.sparkinfer,
+                                fr["epsilon_floor"], fr["incumbent"]) if getattr(args, "box_speeds", True) else None
+
+    # ---- per-box speeds (hpc01-e5) --------------------------------------------------------------
+
+    @property
+    def speed_args(self) -> list[str]:
+        return ["--speeds", str(self.speeds.dir)] if self.speeds else []
+
+    @property
+    def speed_stamp(self) -> str | None:
+        return self.speeds.stamp if self.speeds else None
+
+    def ensure_speeds(self) -> None:
+        """Every ranked reference gets a speed from this machine before anything is ranked."""
+        if not self.speeds:
+            return
+        todo = self.speeds.missing(references([Path(self.args.seeds), self.accepted]))
+        if todo:
+            print(f"[speeds] measuring {len(todo)} reference(s) on this machine", flush=True)
+            failed = self.speeds.measure(todo)
+            if failed:
+                print(f"[speeds] not measured, stored speeds used: {', '.join(failed)}", flush=True)
 
     def restore(self, ledger_dir: Path) -> None:
         """Rebuild what a replacement box would otherwise lose, from the published record.
@@ -594,6 +619,7 @@ class Evaluator:
 
     def run_once(self) -> None:
         self.sync_merged()
+        self.ensure_speeds()  # a newly merged result, or a new machine, is measured here before anything is ranked
         open_prs = self.gh.paged("/pulls?state=open&sort=created&direction=asc")
         first_seen = {}
         for pr in open_prs:  # observe everything before evaluating anything
@@ -630,9 +656,11 @@ class Evaluator:
         self.ledger.observations(self.obs.dir)
         for name in self._accepted_names():
             self.ledger.accept(name, self.accepted / name)
+        if self.speeds:
+            self.ledger.speeds(self.speeds.dir)
         frontier_json = self.root / "frontier.json"
         paths = [self.args.seeds, str(self.accepted)]
-        if subprocess.run(self.py + ["frontier", *paths, "--out", str(frontier_json)], cwd=REPO_ROOT,
+        if subprocess.run(self.py + ["frontier", *paths, "--out", str(frontier_json)] + self.speed_args, cwd=REPO_ROOT,
                           capture_output=True, text=True).returncode == 0:
             self.ledger.frontier(json.loads(frontier_json.read_text()))
         if not self.args.ledger_remote:
@@ -928,6 +956,10 @@ class Evaluator:
             # ---- stage 2: performance ----
             if run(ev + ["--stages", "performance"] + reuse, REPO_ROOT, log) != 0:
                 raise RuntimeError("performance stage failed")
+            if self.speeds and (moved := self.speeds.check_drift(Path(self.args.seeds) / self.track["frontier"]["incumbent"])):
+                print(f"[speeds] V0 moved beyond noise ({'; '.join(moved)}): re-measuring every reference", flush=True)
+                self.speeds.reset()
+                self.ensure_speeds()
             frontier, row, refs = self._rank(me, art, open_prs, work)
             if status_from_row(row) not in ("frontier", "provisional"):  # the holdout has not run yet at this stage
                 skipped = ["tasks", "holdout"]
@@ -1040,7 +1072,7 @@ class Evaluator:
         refs = reference_entries(me, self.state, self.live_heads(open_prs))
         frontier_json = work / "frontier.json"
         paths = [self.args.seeds, str(self.accepted)] + [self.state[k]["artifact"] for k in refs] + [str(art)]
-        if subprocess.run(self.py + ["frontier", *paths, "--out", str(frontier_json)], cwd=REPO_ROOT,
+        if subprocess.run(self.py + ["frontier", *paths, "--out", str(frontier_json)] + self.speed_args, cwd=REPO_ROOT,
                           capture_output=True, text=True).returncode != 0:
             raise RuntimeError("frontier ranking failed")
         frontier = json.loads(frontier_json.read_text())
@@ -1049,7 +1081,7 @@ class Evaluator:
         return frontier, row, refs
 
     def _report(self, pr, cand, art, ckpt, frontier, label, notes, screen, refs, skipped, finish, work):
-        cmp_out = subprocess.run(self.py + ["compare", str(Path(self.args.seeds) / self.track["frontier"]["incumbent"]), str(art)],
+        cmp_out = subprocess.run(self.py + ["compare", str(Path(self.args.seeds) / self.track["frontier"]["incumbent"]), str(art)] + self.speed_args,
                                  cwd=REPO_ROOT, capture_output=True, text=True)
         cmp = json.loads(cmp_out.stdout) if cmp_out.returncode == 0 else None
         if refs:
@@ -1060,12 +1092,14 @@ class Evaluator:
                 rec = json.loads(path.read_text())
                 if rec.get("name") and rec.get("pr"):
                     pr_of.setdefault(rec["name"], rec["pr"])
+        if self.speed_stamp:
+            notes.append(f"All speeds compared here were measured on this evaluator's machine (references on {self.speed_stamp[:10]}).")
         body = render_comment(cand["name"], cand["id"], frontier, cmp, label, notes, screen, self._timings(art), pr_of=pr_of)
         self._delete(ckpt)  # a skipped result that a later re-rank lifts is rebuilt (deterministic, CPU)
         row = next((r for r in frontier["internal"] if r["id"] == cand["id"]), {})
         return finish(label, label, body, artifact=str(art), candidate=cand["id"], name=cand["name"], references=refs,
                       accepted=self._accepted_names(), skipped=skipped, screen=screen, row=row,
-                      gain=row.get("frontier_gain") or 0.0)
+                      gain=row.get("frontier_gain") or 0.0, speeds=self.speed_stamp)
 
     def _timings(self, art: Path) -> dict:
         p = art / "timings.json"
@@ -1086,7 +1120,8 @@ class Evaluator:
                 continue
             me = {"pr": e["pr"], "author": e["author"], "first_seen": e["first_seen"]}
             refs = reference_entries(me, self.state, live)
-            if refs == e.get("references", []) and self._accepted_names() == e.get("accepted", []):
+            if (refs == e.get("references", []) and self._accepted_names() == e.get("accepted", [])
+                    and e.get("speeds") == self.speed_stamp):
                 continue
             work = self.root / "prs" / key
             try:
@@ -1095,20 +1130,20 @@ class Evaluator:
                 traceback.print_exc()
                 continue
             label = status_from_row(row)
-            e["references"], e["accepted"] = refs, self._accepted_names()
+            e["references"], e["accepted"], e["speeds"] = refs, self._accepted_names(), self.speed_stamp
             tier = tier_for(label, row.get("frontier_gain"), REWARDS["tiers_fg2"])
             if label == e["status"] and tier == e.get("tier"):
                 continue
             if label in ("frontier", "provisional") and e.get("skipped"):
                 e["status"] = "resume"  # measured tasks and holdout never ran; the next pass rebuilds and finishes it
-                self.gh.comment(pr["number"], f"{score_header('queued')}\n\nBitTrellis evaluator: an earlier PR this result was ranked against has "
-                                "closed, so it is no longer dominated. Resuming: tasks and private holdout.")
+                self.gh.comment(pr["number"], f"{score_header('queued')}\n\nBitTrellis evaluator: the results this PR was ranked against have "
+                                "changed, so it is no longer dominated. Resuming: tasks and private holdout.")
                 continue
             e["status"], e["tier"], e["gain"] = label, tier, row.get("frontier_gain") or 0.0
             self.gh.set_status_label(pr["number"], label)
             self.gh.set_tier_label(pr["number"], tier)
-            self.gh.comment(pr["number"], f"{score_header(label, row)}\n\nBitTrellis evaluator: re-ranked after the set of "
-                            f"earlier or merged results changed. Status is now **{LABELS[label][0]}**.")
+            self.gh.comment(pr["number"], f"{score_header(label, row)}\n\nBitTrellis evaluator: re-ranked after the results it is "
+                            f"compared with changed (earlier or merged results, or their speeds re-measured on this machine). Status is now **{LABELS[label][0]}**.")
 
 
 def main() -> int:
@@ -1133,6 +1168,8 @@ def main() -> int:
     ap.add_argument("--auto-merge", action="store_true",
                     help="merge the top-ranked open result each pass; needs a token with contents: write")
     ap.add_argument("--merge-method", default="squash", choices=("squash", "merge", "rebase"))
+    ap.add_argument("--no-box-speeds", dest="box_speeds", action="store_false",
+                    help="rank with each result's stored speed instead of speeds re-measured on this machine")
     ap.add_argument("--once", action="store_true")
     ap.add_argument("--interval", type=int, default=600)
     args = ap.parse_args()

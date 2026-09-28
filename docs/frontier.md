@@ -8,6 +8,20 @@ seed (`results/feasibility/artifacts`), and accepted miner results. The frontier
 resubmitting a seed earns nothing. **External rows** (R1 unsloth checkpoint, R2 llama.cpp UD-Q4_K_M,
 R3 NVIDIA compatibility boundary) are context only.
 
+## Speeds from the evaluator's machine (hpc01-e5)
+
+Quality, tasks and the holdout give the same result for the same checkpoint on any box, to every digit.
+Speed does not: V0's prefill was 14,760 tok/s on the box that measured the seeds and 16,650-16,715 on
+two later RTX 5090 boxes. Compared with stored speeds, a recipe with V0's speed looked 11-12% faster and
+scored XL. So each ranked result's decode, prefill and peak memory are re-measured on the machine that
+measures the PR, and the ranking uses those ([`evaluator/speeds.py`](../evaluator/speeds.py)):
+
+- When the evaluator starts on a machine, and after each merge, it rebuilds every ranked reference from its
+  recipe and runs only the performance stage (2 runs). A different machine discards the stored speeds.
+- V0 is re-measured next to every PR. If it moved beyond the ε margins below, every reference is re-measured
+  before the PR is ranked.
+- The speeds are published with the score record (`<epoch>/speeds/<time>/`), so a ranking can be re-derived.
+
 ## Section-balanced drift (hpc01-e4)
 
 The fidelity objective is RP-KL made **section-balanced**: V0's RP-KL × the mean, over sections, of the

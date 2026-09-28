@@ -92,7 +92,8 @@ tmux new -d -s bot '/workspace/run-evaluator.sh > /workspace/evaluator.log 2>&1'
 tail -f /workspace/evaluator.log
 ```
 
-One pass only, to try it: add `--once` to `run_bot.sh`.
+On a new machine the first pass re-measures the speed of every ranked reference before any PR (`[speeds]` in the log;
+about 0.7 GPU-minutes per reference plus its build). One pass only, to try it: add `--once` to `run_bot.sh`.
 
 Under systemd instead of tmux:
 
@@ -120,7 +121,7 @@ journalctl -u bittrellis-evaluator -f
 bittrellis doctor                                  # pins, models, runtime, corpus, reference
 bittrellis frontier --with-seeds                   # the current ranking
 cat /workspace/bt-eval/state.json                  # per-PR status
-ls /workspace/bt-eval/ledger/hpc01-e4/results/     # published score records
+ls /workspace/bt-eval/ledger/hpc01-e5/results/     # published score records
 ```
 
 ## 6. Before returning the box

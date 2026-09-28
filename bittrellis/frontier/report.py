@@ -19,13 +19,16 @@ def _read(p: Path) -> dict | None:
     return json.loads(p.read_text()) if p.exists() else None
 
 
-def load_row(art: Path) -> Row | None:
+def load_row(art: Path, speeds: Path | None = None) -> Row | None:
+    """One artifact as a row. With `speeds` (hpc01-e5), a ranked result's speed and memory come from
+    `<speeds>/<candidate id>/performance.json` -- re-measured on the machine that measures the PR -- when present."""
     cand, q, perf = _read(art / "candidate.json"), _read(art / "quality.json"), _read(art / "performance.json")
     if not (cand and q and perf) or "rp_kl" not in q:
         return None
     corr = _read(art / "correctness.json")
     hold = _read(art / "holdout.json")
     kind = "internal" if cand.get("kind") in ("candidate", "internal") else "external"
+    perf = (_read(Path(speeds) / cand["id"] / "performance.json") if speeds and kind == "internal" else None) or perf
     return Row(
         id=cand["id"], name=cand["name"], kind=kind,
         rp_kl=q["rp_kl"], decode_tps=perf["decode_tps"], prefill_tps=perf["prefill_tps"], peak_gpu_gib=perf["peak_gpu_gib"],
@@ -95,8 +98,8 @@ def collect_artifacts(paths: list[Path]) -> list[Path]:
     return arts
 
 
-def load_rows(paths: list[Path], track: Track) -> tuple[list[Row], PairedQuality]:
-    rows = [r for r in (load_row(a) for a in collect_artifacts(paths)) if r is not None]
+def load_rows(paths: list[Path], track: Track, speeds: Path | None = None) -> tuple[list[Row], PairedQuality]:
+    rows = [r for r in (load_row(a, speeds) for a in collect_artifacts(paths)) if r is not None]
     incumbent_name = track["frontier"]["incumbent"]
     incumbent = next((r for r in rows if r.name == incumbent_name), None)
     scale = drift_scale(track, Path(incumbent.extra["path"]) if incumbent else None)
@@ -155,9 +158,9 @@ def write_frontier(rows: list[Row], track: Track, out: Path | None) -> dict:
     return doc
 
 
-def compare(a: Path, b: Path, track: Track) -> dict:
+def compare(a: Path, b: Path, track: Track, speeds: Path | None = None) -> dict:
     """Paired comparison of two artifacts: RP-KL delta with CI, and every performance objective."""
-    ra, rb = load_row(a), load_row(b)
+    ra, rb = load_row(a, speeds), load_row(b, speeds)
     if ra is None or rb is None:
         raise ValueError("both artifacts need quality.json and performance.json")
     scale = drift_scale(track, REPO_ROOT / track["frontier"]["seeds"] / track["frontier"]["incumbent"])

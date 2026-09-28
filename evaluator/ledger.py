@@ -88,6 +88,18 @@ class Ledger:
             if src.exists():
                 shutil.copyfile(src, dst / f)
 
+    def speeds(self, source: Path) -> None:
+        """Publish the reference speeds measured on this machine (hpc01-e5), so a ranking can be re-derived."""
+        machine = Path(source) / "machine.json"
+        if not machine.exists():
+            return
+        dst = self.dir / "speeds" / json.loads(machine.read_text())["measured_utc"].replace(":", "")
+        dst.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(machine, dst / "machine.json")
+        for perf in Path(source).glob("*/performance.json"):
+            (dst / perf.parent.name).mkdir(exist_ok=True)
+            shutil.copyfile(perf, dst / perf.parent.name / "performance.json")
+
     def frontier(self, doc: dict) -> None:
         records = progress_chart.load(self.dir)
         merged = [r for r in records if r["merged"]]

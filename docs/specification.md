@@ -13,7 +13,7 @@ Supersedes the original blueprint and v2: v2's rules plus six fixes ([§14](#14-
 - **Objectives:** RP-KL ↓ · decode tok/s ↑ · 4K prefill tok/s ↑ · peak GPU memory ↓.
 - **Out of scope:** pruning, distillation, fine-tuning/QAT, adapters, architecture/tokenizer/kernel changes, other models/GPUs/runtimes.
 
-Pins: [`configs/hpc01.yaml`](../configs/hpc01.yaml), [`configs/sources.lock.json`](../configs/sources.lock.json). Changing evaluation, frontier or gates needs a new **evaluator epoch** (versioned rule set; now `hpc01-e4`: section-balanced drift, [frontier.md](frontier.md#section-balanced-drift-hpc01-e4)).
+Pins: [`configs/hpc01.yaml`](../configs/hpc01.yaml), [`configs/sources.lock.json`](../configs/sources.lock.json). Changing evaluation, frontier or gates needs a new **evaluator epoch** (versioned rule set; now `hpc01-e5`: speeds measured on the evaluator's machine, [frontier.md](frontier.md#speeds-from-the-evaluators-machine-hpc01-e5)).
 
 ## 2. Runtime truth
 

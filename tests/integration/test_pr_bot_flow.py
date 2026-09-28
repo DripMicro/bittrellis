@@ -70,10 +70,31 @@ def bot(tmp_path, monkeypatch):
 
     holdout = {"result": "PASS"}
 
+    box = {"prefill_scale": 1.13}   # the evaluator's machine: every recipe 13% faster at prefill than where it was stored
+
+    def fake_speed_run(sub, cmd):
+        out = Path(cmd[cmd.index("--out") + 1])
+        out.mkdir(parents=True, exist_ok=True)
+        if sub == "build":
+            shutil.copy(cmd[4], out / "precision_manifest.yaml")
+            (out / "bittrellis_build.json").write_text("{}")
+            return 0
+        from bittrellis.manifest import Manifest
+        from bittrellis.model.qwen38 import Qwen38Arch
+
+        m = Manifest.load(Path(cmd[4]) / "precision_manifest.yaml")
+        perf = json.loads((SEEDS / m.name / "performance.json").read_text())
+        perf["prefill_tps"] *= box["prefill_scale"]
+        (out / "candidate.json").write_text(json.dumps({"id": m.candidate_id(Qwen38Arch().units()), "name": m.name}))
+        (out / "performance.json").write_text(json.dumps(perf))
+        return 0
+
     def fake_run(cmd, cwd, log, timeout=0):
         if cmd[0] == "git":
             return 0
         sub = cmd[3]
+        if Path(cwd).name == "speeds":
+            return fake_speed_run(sub, cmd)
         if sub == "holdout":
             art = Path(cmd[cmd.index("--artifact") + 1])
             stages_run.append((int(art.parent.name.split("-")[0]), "holdout"))
@@ -120,8 +141,8 @@ def bot(tmp_path, monkeypatch):
     monkeypatch.setattr(pr_bot.subprocess, "run", fake_subprocess_run)
     args = SimpleNamespace(root=str(tmp_path / "eval"), base="/nonexistent", shipped="/nonexistent", unsloth="/nonexistent",
                            sparkinfer="/nonexistent", reference="/nonexistent", seeds=str(SEEDS), private="/nonexistent-private",
-                           keep_checkpoints=False, ledger=str(tmp_path / "ledger"), ledger_remote=None)
-    return SimpleNamespace(args=args, recipes=recipes, stages=stages_run, holdout=holdout)
+                           keep_checkpoints=False, ledger=str(tmp_path / "ledger"), ledger_remote=None, box_speeds=False)
+    return SimpleNamespace(args=args, recipes=recipes, stages=stages_run, holdout=holdout, box=box)
 
 
 def pr(number, author, sha):
@@ -297,3 +318,27 @@ def test_a_holdout_failure_is_known_before_the_task_suite_runs(bot):
     pr_bot.Evaluator(gh, bot.args).run_once()
     assert (1, "holdout") in bot.stages and (1, "tasks") not in bot.stages     # 784 questions not spent on a reject
     assert "eval:REJECT" in gh.labels[1] and gh.merged == []
+
+
+def test_a_faster_machine_is_not_paid_as_a_faster_recipe(bot, tmp_path, monkeypatch):
+    """hpc01-e5: V0 and every reference are re-measured on the machine that measures the PR."""
+    monkeypatch.setattr(sys.modules["speeds"], "machine", lambda _: {"gpu": "test"})
+    sha = "e" * 40
+    v0 = json.loads((SEEDS / "V0-baseline-rebuild" / "performance.json").read_text())
+    as_fast_as_v0_here = {"prefill_tps": v0["prefill_tps"] * bot.box["prefill_scale"]}
+    early_rtn = [{"match": "L*.mlp", "layers": "0-3", "format": "NVFP4", "quantizer": "rtn"}]
+    bot.recipes[sha] = (manifest_yaml("early-mlp-rtn", early_rtn), SEEDS / "V0-baseline-rebuild", as_fast_as_v0_here)
+    paid = {f"eval:{t}" for t in pr_bot.TIERS}
+
+    gh = FakeGitHub([pr(1, "alice", sha)])
+    pr_bot.Evaluator(gh, bot.args).run_once()                     # stored speeds: looks 13% faster than V0
+    assert paid & set(gh.labels[1])
+
+    bot.args.box_speeds, bot.args.root, bot.args.ledger = True, str(tmp_path / "eval-e5"), str(tmp_path / "ledger-e5")
+    gh = FakeGitHub([pr(1, "alice", sha)])
+    ev = pr_bot.Evaluator(gh, bot.args)
+    ev.run_once()                                                 # speeds from this machine: exactly as fast as V0
+    assert not paid & set(gh.labels[1]) and "eval:none" in gh.labels[1]
+    assert ev.speeds.has(json.loads((SEEDS / "V0-baseline-rebuild" / "candidate.json").read_text())["id"])
+    assert "measured on this evaluator's machine" in gh.comments[1][-2]   # the result, then the closing comment
+    assert (Path(bot.args.ledger) / EPOCH / "speeds").is_dir()    # published, so the ranking can be re-derived

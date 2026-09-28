@@ -35,7 +35,9 @@ runtime:
 hardware: {gpu: NVIDIA GeForce RTX 5090, count: 1, vram_mib: 32607}
 
 evaluation:
-  epoch: hpc01-e4
+  epoch: hpc01-e5
+  # hpc01-e5: every ranked result is compared on speed and memory as measured on the evaluator's own machine;
+  # references are re-measured there (evaluator/speeds.py). Quality, tasks and the holdout keep their results.
   corpus:
     public: data/corpus/hpc01-public-v2.json     # public development fidelity set
   score:

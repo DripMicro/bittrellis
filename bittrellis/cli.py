@@ -392,7 +392,7 @@ def cmd_frontier(args) -> int:
 
     track = load_track(args.track)
     paths = [Path(p) for p in args.artifacts] + (seed_rows(track) if args.with_seeds else [])
-    rows, _ = load_rows(paths, track)
+    rows, _ = load_rows(paths, track, args.speeds)
     doc = write_frontier(rows, track, Path(args.out) if args.out else None)
     print(render_table(rows))
     print(f"{len(doc['frontier'])} on the internal frontier ({doc['frontier_gain_version']}, epoch {doc['evaluator_epoch']})")
@@ -402,7 +402,7 @@ def cmd_frontier(args) -> int:
 def cmd_compare(args) -> int:
     from .frontier.report import compare
 
-    _json(compare(Path(args.a), Path(args.b), load_track(args.track)))
+    _json(compare(Path(args.a), Path(args.b), load_track(args.track), args.speeds))
     return 0
 
 
@@ -550,9 +550,11 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("artifacts", nargs="*")
     p.add_argument("--with-seeds", action="store_true", help="include the track's seed artifacts")
     p.add_argument("--out")
+    p.add_argument("--speeds", help="per-machine speeds dir (<id>/performance.json) used for ranked results")
     p = sp("compare", cmd_compare, "paired comparison of two artifacts")
     p.add_argument("a")
     p.add_argument("b")
+    p.add_argument("--speeds", help="per-machine speeds dir (<id>/performance.json) used for ranked results")
     p = sp("report", cmd_report, "frontier.json, comparison.csv, plots")
     p.add_argument("artifacts", nargs="+")
     p.add_argument("--out", default=str(REPO_ROOT / "results/feasibility"))
