@@ -1019,6 +1019,11 @@ class Evaluator:
         if refs:
             notes.append("Ranked with earlier open PRs on the frontier: " + ", ".join(f"#{self.state[k]['pr']}" for k in refs) + ".")
         pr_of = {e["name"]: e["pr"] for e in self.state.values() if isinstance(e, dict) and e.get("name") and e.get("pr")}
+        if self.ledger:  # a replacement box starts with empty state; the published records still name every PR
+            for path in (self.ledger.dir / "results").glob("pr-*.json"):
+                rec = json.loads(path.read_text())
+                if rec.get("name") and rec.get("pr"):
+                    pr_of.setdefault(rec["name"], rec["pr"])
         body = render_comment(cand["name"], cand["id"], frontier, cmp, label, notes, screen, self._timings(art), pr_of=pr_of)
         self._delete(ckpt)  # a skipped result that a later re-rank lifts is rebuilt (deterministic, CPU)
         row = next((r for r in frontier["internal"] if r["id"] == cand["id"]), {})
