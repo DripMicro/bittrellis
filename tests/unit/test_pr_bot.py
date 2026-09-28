@@ -114,12 +114,14 @@ def test_merge_first_prefers_tier_then_gain_then_first_seen():
     assert pr_bot.pick_merge_first([c[-1]]) is None
 
 
-def test_rejected_and_duplicate_heads_are_closed_dominated_ones_stay_open():
-    prs = [{"number": n, "head": {"sha": f"{n}" * 40}} for n in (6, 7, 8, 9, 10)]
-    state = {f"{n}-{str(n) * 12}": {"status": s}
-             for n, s in ((6, "gate"), (7, "duplicate"), (8, "dominated"), (9, "frontier"))}
-    state["10-" + "f" * 12] = {"status": "gate"}   # an older head of #10: its new head is still unmeasured
-    assert pr_bot.to_close(prs, state) == [6, 7]
+def test_every_head_that_cannot_earn_is_closed_and_paid_or_pending_ones_stay_open():
+    prs = [{"number": n, "head": {"sha": f"{n}" * 40}} for n in (1, 2, 3, 4, 5, 6, 7, 8)]
+    state = {f"{n}-{str(n) * 12}": e for n, e in (
+        (1, {"status": "gate", "tier": "REJECT"}), (2, {"status": "duplicate", "tier": "none"}),
+        (3, {"status": "dominated", "tier": "none"}), (4, {"status": "frontier", "tier": "none"}),   # below XS
+        (5, {"status": "frontier", "tier": "S"}), (6, {"status": "queued"}), (7, {"status": "provisional"}))}
+    state["8-" + "f" * 12] = {"status": "gate"}   # an older head of #8: its new head is still unmeasured
+    assert pr_bot.to_close(prs, state) == [1, 2, 3, 4]
 
 
 def test_comment_shows_the_nearest_frontier_results_and_bolds_only_clear_wins():

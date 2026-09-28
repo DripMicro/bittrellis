@@ -38,7 +38,7 @@ closed): labels stay current, and a PR that becomes non-dominated is resumed for
    tier is final, so every condition is re-checked against a fresh read of the PR at merge time, and
    the merge names the exact evaluated head SHA: GitHub refuses it if the branch moved since.
 7. CLOSE open PRs whose head was rejected or is a duplicate: they cannot earn, and an open PR takes one
-   of the author's open-PR slots on Gittensor. Dominated PRs stay open (a re-rank can revive them).
+   of the author's open-PR slots on Gittensor. So do results that earn no tier (dominated, or below XS).
 
 State lives in <root>/state.json; artifacts in <root>/prs/<number>-<sha>/; accepted artifacts in
 <root>/accepted/ (copied when a PR that the bot evaluated is merged).
@@ -311,14 +311,20 @@ def pick_merge_first(candidates: list[dict]) -> dict | None:
 
 
 # Closed automatically: this head can no longer earn, and an open PR takes one of the author's open-PR
-# slots on Gittensor. Dominated results stay open, since a closing reference can revive them (rerank).
-CLOSED_STATUSES = REJECTED | {"duplicate"}
+# slots on Gittensor. That includes results that earn no tier (dominated, or on the frontier below XS): what
+# beats them is usually merged or a seed and never goes away. The rare revival -- a PR they were ranked
+# against closes -- is left to the author, who can reopen or resubmit.
+CLOSED_STATUSES = REJECTED | {"duplicate", "dominated"}
 
 
 def to_close(open_prs: list[dict], state: dict) -> list[int]:
-    """Open PRs whose current head was rejected or duplicates a known recipe."""
-    return [p["number"] for p in open_prs
-            if state.get(f"{p['number']}-{p['head']['sha'][:12]}", {}).get("status") in CLOSED_STATUSES]
+    """Open PRs whose current head cannot earn: rejected, a duplicate, dominated, or measured below the lowest tier."""
+    out = []
+    for p in open_prs:
+        e = state.get(f"{p['number']}-{p['head']['sha'][:12]}", {})
+        if e.get("status") in CLOSED_STATUSES or (e.get("status") == "frontier" and e.get("tier") == "none"):
+            out.append(p["number"])
+    return out
 
 
 # GitHub's mergeable_state. "clean" alone: "unstable" means a check is failing or still running, and

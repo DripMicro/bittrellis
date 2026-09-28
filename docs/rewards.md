@@ -54,7 +54,7 @@ Merging is payment, so the bot merges only what it has just measured and re-chec
 3. Next pass, other open results are re-ranked against it; one whose gain the merge covered drops to `eval:none`.
 4. **A merged PR's tier is final**; the bot never relabels it.
 
-The bot closes rejected (`eval:REJECT`) and duplicate PRs itself, with a comment: they cannot earn, and an open PR counts toward your open-PR limit. Closing costs no credibility here (`min_credibility` is 0). Dominated PRs stay open, because a re-rank can revive them; close them yourself once you stop pursuing them, since they reserve collateral and count toward the spam limit.
+The bot closes every PR that cannot earn, with a comment: rejected (`eval:REJECT`), duplicate, dominated, and results on the frontier below the lowest tier (`eval:none`). An open PR counts toward your open-PR limit and reserves collateral, and closing costs no credibility here (`min_credibility` is 0). A revised recipe is welcome as a new PR; if a result you were ranked against later closes, reopen yours to have it re-scored.
 
 ## The public record
 

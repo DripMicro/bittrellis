@@ -29,7 +29,7 @@ def manifest_yaml(name, rules):
 class FakeGitHub(pr_bot.GitHub):
     def __init__(self, prs):
         super().__init__("o/r", "t")
-        self.prs, self.labels, self.comments = prs, {}, {}
+        self.prs, self.labels, self.comments, self.closed = prs, {}, {}, []
 
     def paged(self, path):
         if path.startswith("/pulls?state=open"):
@@ -40,6 +40,11 @@ class FakeGitHub(pr_bot.GitHub):
         return [{"filename": f"manifests/{number}.yaml"}]
 
     def api(self, method, path, body=None):
+        if method == "PATCH" and path.startswith("/pulls/") and (body or {}).get("state") == "closed":
+            number = int(path.split("/")[2])
+            self.closed.append(number)
+            self.prs = [p for p in self.prs if p["number"] != number]
+            return None
         number = int(path.split("/")[2]) if path.startswith("/issues/") else None
         if method == "GET":
             return {"labels": [{"name": n} for n in self.labels.get(number, [])]}
@@ -155,7 +160,8 @@ def test_frontier_duplicate_near_copy_and_staged_skip(bot):
     assert (2, "quality") not in bot.stages
     assert (4, "tasks") not in bot.stages and (3, "tasks") not in bot.stages  # dominated: tasks and holdout skipped
     assert (1, "tasks") in bot.stages
-    assert "Ranked with earlier open PRs on the frontier: #1" in gh.comments[3][-1]
+    assert any("Ranked with earlier open PRs on the frontier: #1" in c for c in gh.comments[3])
+    assert sorted(gh.closed) == [2, 3, 4] and "Closed automatically" in gh.comments[3][-1]   # none of them can earn
     assert "Claude" not in json.dumps(gh.comments)
 
     # the public score record: one write-once record per evaluated head, plus the frontier and README
@@ -169,8 +175,8 @@ def test_frontier_duplicate_near_copy_and_staged_skip(bot):
     assert "V0-baseline-rebuild" in readme and f"{EPOCH}/accepted" in readme
     assert "holdout" not in json.dumps(records[1]).lower() or records[1]["row"]["holdout"] in ("PASS", "FAIL", None)
 
-    # alice closes #1 unmerged: carol's result is re-ranked, becomes non-dominated, and resumes for tasks
-    gh.prs = [p for p in gh.prs if p["number"] != 1]
+    # alice closes #1 unmerged and carol reopens #3: it is re-ranked, becomes non-dominated, and resumes for tasks
+    gh.prs = [p for p in gh.prs if p["number"] != 1] + [pr(3, "carol", c)]
     ev.run_once()
     assert ev.state[f"3-{c[:12]}"]["status"] == "frontier"
     assert (3, "tasks") in bot.stages
