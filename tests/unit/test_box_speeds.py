@@ -28,7 +28,7 @@ def test_a_ranked_result_takes_its_speed_from_this_machine(tmp_path):
 
 
 def test_external_references_keep_their_own_numbers(tmp_path):
-    ext = next(d for d in SEEDS.iterdir() if json.loads((d / "candidate.json").read_text()).get("kind") == "external"
+    ext = next(d for d in sorted(SEEDS.iterdir()) if d.is_dir() and json.loads((d / "candidate.json").read_text()).get("kind") == "external"
                and (d / "performance.json").exists() and (d / "quality.json").exists())
     cid = json.loads((ext / "candidate.json").read_text())["id"]
     (tmp_path / cid).mkdir()
