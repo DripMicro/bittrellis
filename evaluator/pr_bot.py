@@ -220,6 +220,22 @@ def classify(files: list[str]) -> tuple[str, list[str]]:
     return "other", manifests
 
 
+def not_evaluated_reason(kind: str, files: list[str], manifests: list[str]) -> str:
+    """Why a PR is left for a maintainer, precisely enough for the author to fix it."""
+    if kind == "evaluator":
+        return ("this PR changes evaluator or other protected paths, so it is not evaluated automatically. "
+                "A maintainer will review it.")
+    if len(manifests) > 1:
+        return (f"this PR adds {len(manifests)} manifests ({', '.join(f'`{m}`' for m in manifests)}); one PR is one "
+                "candidate. Remove all but one and push: the new version is evaluated automatically.")
+    if not manifests:
+        return "this PR adds no manifest (`manifests/*.yaml`), so there is nothing to evaluate. A maintainer will review it."
+    extra = [f for f in files if f not in manifests]
+    return ("this PR changes files outside `manifests/`, quantizer code and tests ("
+            + ", ".join(f"`{f}`" for f in extra[:5]) + (", …" if len(extra) > 5 else "")
+            + "), so it is not evaluated automatically. Remove them and push, or a maintainer will review it.")
+
+
 def run(cmd: list[str], cwd: Path, log: Path, timeout: int = 6 * 3600) -> int:
     with open(log, "a") as fh:
         fh.write(f"\n$ {' '.join(cmd)}\n")
@@ -779,8 +795,7 @@ class Evaluator:
                 self.gh.comment(number, body)
 
         if kind in ("evaluator", "other") or not manifests:
-            return finish(kind, "evaluator", "BitTrellis evaluator: this PR changes evaluator or other protected paths "
-                                             "(or adds no manifest), so it is not evaluated automatically. A maintainer will review it.")
+            return finish(kind, "evaluator", "BitTrellis evaluator: " + not_evaluated_reason(kind, files, manifests))
         if kind == "code" and APPROVED not in labels:
             if self.state.get(key, {}).get("status") != "needs-approval":
                 finish("needs-approval", "needs_approval")

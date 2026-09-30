@@ -177,3 +177,13 @@ def test_error_summary_shows_only_the_failing_steps_error():
     invalid = "\n$ [sandbox:bt-sandbox] python -m bittrellis.cli manifest m.yaml\n✗ m.yaml: unknown quantizer 'x'\n"
     assert pr_bot.error_summary(invalid) == "✗ m.yaml: unknown quantizer 'x'"
     assert pr_bot.error_summary("\n$ python -m x\n") == "(no output)"
+
+
+def test_a_pr_left_for_a_maintainer_is_told_the_real_reason():
+    two = ["manifests/a.yaml", "manifests/b.yaml"]
+    assert pr_bot.classify(two)[0] == "other"
+    assert "adds 2 manifests (`manifests/a.yaml`, `manifests/b.yaml`)" in pr_bot.not_evaluated_reason("other", two, two)
+    assert "protected paths" in pr_bot.not_evaluated_reason("evaluator", ["configs/hpc01.yaml"], [])
+    assert "adds no manifest" in pr_bot.not_evaluated_reason("other", ["README.md"], [])
+    files = ["manifests/a.yaml", "README.md", "scripts/x.sh"]
+    assert "(`README.md`, `scripts/x.sh`)" in pr_bot.not_evaluated_reason("other", files, ["manifests/a.yaml"])
