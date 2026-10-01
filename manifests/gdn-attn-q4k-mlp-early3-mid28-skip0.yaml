@@ -1,0 +1,23 @@
+schema: bittrellis/manifest@2
+track: HPC-01
+name: gdn-attn-q4k-mlp-early3-mid28-skip0
+description: >
+  Retain the measured recurrent and attention Q4_K assignments from PR37,
+  with MLP Q4_K windows at layers 1-3 and 28-31. Restore other MLP layers
+  to native precision to test a faster-prefill tradeoff against PR37.
+  This recipe is unmeasured; its point gain forecast fails adverse stress
+  tests and its task, needle and holdout outcomes are unknown.
+authors: [dato-bitar]
+default: NVFP4
+rules:
+  - match: "L*.gdn.*"
+    layers: "1-63"
+    format: Q4_K
+  - match: "L*.attn.*"
+    format: Q4_K
+  - match: "L*.mlp"
+    layers: "1-3"
+    format: Q4_K
+  - match: "L*.mlp"
+    layers: "28-31"
+    format: Q4_K
