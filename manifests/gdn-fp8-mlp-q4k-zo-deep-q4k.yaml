@@ -1,0 +1,24 @@
+schema: bittrellis/manifest@2
+track: HPC-01
+name: gdn-fp8-mlp-q4k-zo-deep-q4k
+description: >
+  FP8 on recurrent qkv and shallow z, Q4_K on deep z and out, Q4_K on the MLP after layer 0,
+  and lm_head stored BF16 so its batch-1 Q4_K is fitted once. The full-MLP FP8 map is the
+  lowest-drift point on the frontier; moving only the deep z and out off FP8 is meant to keep
+  that drift and return decode and memory. MLP layer 0 and attention stay NVFP4.
+authors: [milosde111]
+default: NVFP4
+rules:
+  - match: "L*.gdn.*"
+    format: FP8
+  - match: "L*.gdn.z"
+    layers: "32-63"
+    format: Q4_K
+  - match: "L*.gdn.out"
+    layers: "32-63"
+    format: Q4_K
+  - match: "L*.mlp"
+    layers: "1-63"
+    format: Q4_K
+modules:
+  lm_head: Q4_K
