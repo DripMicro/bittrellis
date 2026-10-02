@@ -1,0 +1,33 @@
+schema: bittrellis/manifest@2
+track: HPC-01
+name: gdn-fp8-qkv-out-q4k-mlp-early8-mid55
+description: >
+  Follow-up after Survivor #58 (eval:none / bt:dominated): expanding early
+  MLP Q4_K 1-16 + mid-deep 24-63 approached merged #49 (RP-KL 0.0924 vs
+  0.0872) but lost prefill (9,007) and earned FG-2 0%. Do NOT keep expanding
+  early toward full MLP. Instead half-step the mid-end axis between credited
+  #55 (early8 + mid 24-47, FG +0.011%, prefill 10,433) and #57 (early8 +
+  mid-deep 24-63, FG +0.009%, RP-KL 0.0931): keep early 1-8; set mid
+  24-55 (32 MLP layers — midway length between #55's 24 and #57's 40).
+  Same FP8 GDN/out/lm_head map; attn stays all NVFP4 (#56 deep attn Q4_K
+  gate-fail). Distinct from #55/#57/#58/#49. No local GPU numbers —
+  evaluator re-measures.
+authors: [SurvivorAI0817]
+default: NVFP4
+rules:
+  - match: "L*.gdn.*"
+    format: FP8
+  - match: "L*.gdn.z"
+    layers: "32-63"
+    format: Q4_K
+  - match: "L*.gdn.out"
+    layers: "1-63"
+    format: Q4_K
+  - match: "L*.mlp"
+    layers: "1-8"
+    format: Q4_K
+  - match: "L*.mlp"
+    layers: "24-55"
+    format: Q4_K
+modules:
+  lm_head: Q4_K
