@@ -14,8 +14,11 @@ same manifest always yields the same shard hashes.
 from __future__ import annotations
 
 import json
+import multiprocessing
+import os
 import shutil
 import time
+from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -41,11 +44,12 @@ class PlannedTensor:
     dtype: str
     shape: tuple[int, ...]
     make: Callable[[], object]
+    memo: _Memo | None = None       # set for independent regenerable encodings, which may run in a worker
 
 
 class _Memo:
-    def __init__(self, fn):
-        self.fn, self.value = fn, None
+    def __init__(self, fn, job: tuple[str, str] | None = None):
+        self.fn, self.value, self.job = fn, None, job   # job: (unit id, Linear prefix)
 
     def __call__(self):
         if self.value is None:
@@ -73,10 +77,11 @@ def plan_tensors(units: list[Unit], assignments: dict[str, Assignment], ctx: Q.Q
                 for suf, dtype, shape, data in produced:
                     plan.append(PlannedTensor(lin.prefix + suf, dtype, tuple(shape), lambda d=data: d))
                 continue
-            memo = _Memo(lambda qz=qz, u=u, lin=lin, a=a: encode_unit(qz, ctx, u, lin, a))
+            job = (u.id, lin.prefix) if qz.lineage == "regenerable" else None
+            memo = _Memo(lambda qz=qz, u=u, lin=lin, a=a: encode_unit(qz, ctx, u, lin, a), job)
             for suf, dtype, shape in _declared(qz, ctx, u, lin, a.format):
                 plan.append(PlannedTensor(lin.prefix + suf, dtype, shape,
-                                          lambda m=memo, suf=suf: next(d for s, _, _, d in m() if s == suf)))
+                                          lambda m=memo, suf=suf: next(d for s, _, _, d in m() if s == suf), memo))
     for name, ref in frozen.tensors.items():
         prefix, _, suffix = name.rpartition(".")
         if prefix in searchable and "." + suffix in LINEAR_SUFFIXES:
@@ -92,6 +97,64 @@ def plan_tensors(units: list[Unit], assignments: dict[str, Assignment], ctx: Q.Q
 def encode_unit(qz: Q.Quantizer, ctx: Q.QuantContext, u: Unit, lin, a: Assignment):
     ctx.params = dict(a.params)
     return qz.encode(ctx, u, lin, a.format)
+
+
+# Independent regenerable encodings run in forked workers: each depends only on its own Linear's BF16 weight,
+# so the bytes are the same as a serial build, only sooner. The writer still consumes them in plan order.
+_WORKER: dict = {}
+
+
+def _encode_job(job: tuple[str, str]):
+    ctx, units, assignments = _WORKER["ctx"], _WORKER["units"], _WORKER["assignments"]
+    u = units[job[0]]
+    lin = next(x for x in u.linears if x.prefix == job[1])
+    a = assignments[u.id]
+    return [(suf, dt, tuple(sh), data) for suf, dt, sh, data in encode_unit(Q.get(a.quantizer), ctx, u, lin, a)]
+
+
+def build_jobs() -> int:
+    """Worker processes for a build: BITTRELLIS_BUILD_JOBS, else half the CPUs (at most 16); 1 means serial."""
+    env = os.environ.get("BITTRELLIS_BUILD_JOBS")
+    return max(1, int(env)) if env else max(1, min(16, (os.cpu_count() or 2) // 2))
+
+
+def _write_plan(plan: list[PlannedTensor], writer, ctx, units, assignments, jobs: int, log, t0: float) -> None:
+    order: list[_Memo] = []
+    for t in plan:
+        if t.memo is not None and t.memo.job is not None and t.memo not in order:
+            order.append(t.memo)
+    pool = None
+    if jobs > 1 and order:
+        _WORKER.update(ctx=ctx, units={u.id: u for u in units}, assignments=assignments)
+        pool = multiprocessing.get_context("fork").Pool(jobs)
+    try:
+        pending: deque = deque()
+        queued = iter(order)
+
+        def top_up():
+            while pool is not None and len(pending) < 2 * jobs:
+                m = next(queued, None)
+                if m is None:
+                    return
+                pending.append((m, pool.apply_async(_encode_job, (m.job,))))
+
+        top_up()
+        for i, t in enumerate(plan):
+            if t.memo is not None and t.memo.value is None and pending and any(m is t.memo for m, _ in pending):
+                while True:   # results arrive in submission order, which is plan order
+                    m, r = pending.popleft()
+                    m.value = r.get()
+                    top_up()
+                    if m is t.memo:
+                        break
+            writer.add(t.name, t.dtype, t.shape, t.make())
+            if (i + 1) % 250 == 0:
+                log(f"[build]   {i + 1}/{len(plan)} tensors, {time.time() - t0:.0f}s")
+    finally:
+        if pool is not None:
+            pool.terminate()
+            pool.join()
+        _WORKER.clear()
 
 
 def _declared(qz: Q.Quantizer, ctx: Q.QuantContext, u: Unit, lin, fmt: str) -> list[tuple[str, str, tuple]]:
@@ -164,10 +227,7 @@ def build(manifest: Manifest, track: Track, source_dirs: dict[str, Path], out_di
         plan = plan_tensors(units, assignments, ctx, ctx.sources["gittensor_nvfp4"])
         log(f"[build] {manifest.name} ({cid}): {len(plan)} tensors -> {out_dir}")
         writer = ShardWriter(out_dir, shard_bytes)
-        for i, t in enumerate(plan):
-            writer.add(t.name, t.dtype, t.shape, t.make())
-            if (i + 1) % 250 == 0:
-                log(f"[build]   {i + 1}/{len(plan)} tensors, {time.time() - t0:.0f}s")
+        _write_plan(plan, writer, ctx, units, assignments, build_jobs(), log, t0)
         writer.close(metadata={"producer": "bittrellis", "candidate_id": cid})
     finally:
         for h in handles:
