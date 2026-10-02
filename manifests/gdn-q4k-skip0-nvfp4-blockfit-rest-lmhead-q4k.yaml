@@ -1,0 +1,27 @@
+schema: bittrellis/manifest@2
+track: HPC-01
+name: gdn-q4k-skip0-nvfp4-blockfit-rest-lmhead-q4k
+description: >
+  Q4_K on the recurrent projections of layers 1-63 (gdn-q4k-skip-layer0: decode 96.0, peak 21.64 GiB, holdout
+  PASS), with nvfp4_blockfit on every projection that stays NVFP4 (all MLP and attention blocks and recurrent
+  layer 0) and lm_head fitted once from BF16. On the shipped map blockfit lowered drift from 0.1357 to 0.0992 at
+  equal speed (#28); most of the NVFP4 weight here is the MLP, so most of that gain should remain, at the
+  recurrent Q4_K map's decode and memory: about 0.4 GiB below #28 and the decode of the Q4_K maps, which no
+  blockfit result offers.
+authors: [kaivexa]
+default: NVFP4
+rules:
+  - match: "L*.mlp"
+    format: NVFP4
+    quantizer: nvfp4_blockfit
+  - match: "L*.attn.*"
+    format: NVFP4
+    quantizer: nvfp4_blockfit
+  - match: "L*.gdn.*"
+    format: NVFP4
+    quantizer: nvfp4_blockfit
+  - match: "L*.gdn.*"
+    layers: "1-63"
+    format: Q4_K
+modules:
+  lm_head: Q4_K
