@@ -1,0 +1,27 @@
+schema: bittrellis/manifest@2
+track: HPC-01
+name: gdn-q4k-fp8-mid24-35-mlp-q4k
+description: >
+  The all-Q4_K recurrent and MLP recipe after layer 0 (gdn-mlp-q4k-skip-layer0), with lm_head stored BF16 so its
+  batch-1 Q4_K is fitted once from the original weights, and FP8 on the recurrent projections of layers 24-35
+  only. Every FP8 recipe on the frontier puts 8 bits on qkv at every depth and pays 7-12% of decode for it.
+  Measured on a pinned RTX 5090, the fidelity FP8 buys on top of Q4_K is concentrated in one mid-depth band:
+  FP8 on layers 1-15 or 16-23 changes nothing, on 24-31 it lowers drift by about 0.008, and extending the band
+  to 35 adds about 0.003 more, with nothing further from 36-39. Spending FP8 on those 27 projections
+  (4% of the searchable weights) instead of 73-144 keeps decode within 2% of the Q4_K recipes and peak memory
+  under 21 GiB, at a drift between the Q4_K recipes and the FP8 ones. Layer 0, attention and MLP layer 0 stay
+  NVFP4, so the batched-prefill paths stay on.
+authors: [milosde111]
+default: NVFP4
+rules:
+  - match: "L*.gdn.*"
+    layers: "1-63"
+    format: Q4_K
+  - match: "L*.gdn.*"
+    layers: "24-35"
+    format: FP8
+  - match: "L*.mlp"
+    layers: "1-63"
+    format: Q4_K
+modules:
+  lm_head: Q4_K
