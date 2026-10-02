@@ -18,8 +18,8 @@ measures the PR, and the ranking uses those ([`evaluator/speeds.py`](../evaluato
 
 - When the evaluator starts on a machine, and after each merge, it rebuilds every ranked reference from its
   recipe and runs only the performance stage (2 runs). A different machine discards the stored speeds.
-- V0 is re-measured next to every PR. If it moved beyond the ε margins below, every reference is re-measured
-  before the PR is ranked.
+- V0 is re-measured next to every PR. If it moved beyond the ε margins below at two PRs in a row, every
+  reference is re-measured before the second is ranked (a single reading past the margin is noise, not drift).
 - The speeds are published with the score record (`<epoch>/speeds/<time>/`), so a ranking can be re-derived.
 
 ## Section-balanced drift (hpc01-e4)

@@ -47,3 +47,28 @@ def test_drift_is_judged_by_the_noise_floors():
 def test_only_ranked_references_with_a_recipe_are_measured():
     names = {p.name for p in speeds.references([SEEDS])}
     assert "V0-baseline-rebuild" in names and len(names) == 9     # the two external references are context only
+
+
+def test_drift_must_show_at_two_prs_in_a_row(tmp_path):
+    v0 = SEEDS / "V0-baseline-rebuild"
+    cand = json.loads((v0 / "candidate.json").read_text())
+    stored = {"decode_tps": 95.7, "prefill_tps": 16879.0, "peak_gpu_gib": 22.016}
+    readings = iter([22.135, 22.016, 22.135, 22.140])   # blip, back to normal, then a lasting move
+
+    def fake_run(cmd, cwd, log):
+        out = Path(cmd[cmd.index("--out") + 1])
+        out.mkdir(parents=True, exist_ok=True)
+        if cmd[3] == "build":
+            (out / "bittrellis_build.json").write_text("{}")
+        else:
+            (out / "candidate.json").write_text(json.dumps({"id": cand["id"]}))
+            (out / "performance.json").write_text(json.dumps({**stored, "peak_gpu_gib": next(readings)}))
+        return 0
+
+    bs = speeds.BoxSpeeds(tmp_path, fake_run, ["python", "-m", "bittrellis.cli"], [], "/none", FLOORS, "V0-baseline-rebuild")
+    (bs.dir / cand["id"]).mkdir(parents=True)
+    (bs.dir / cand["id"] / "performance.json").write_text(json.dumps(stored))
+    assert bs.check_drift(v0) == []                               # one reading past the floor: noted only
+    assert bs.check_drift(v0) == []                               # back within noise: the note is cleared
+    assert bs.check_drift(v0) == []
+    assert bs.check_drift(v0) == ["peak_gpu_gib 22.016 -> 22.14"]  # two PRs in a row: re-measure

@@ -99,13 +99,23 @@ class BoxSpeeds:
         return failed
 
     def check_drift(self, incumbent_art: Path) -> list[str]:
-        """Re-measure V0 now; the objectives that moved beyond noise since the references were measured."""
+        """Re-measure V0 now; the objectives that moved beyond noise since the references were measured.
+
+        A move must show at two PRs in a row -- V0 is measured next to every PR anyway, so this costs no extra
+        run -- because one reading a little past the floor (V0's peak memory 22.016 -> 22.135 GiB once) is not
+        worth re-measuring every reference for."""
         cand = json.loads((incumbent_art / "candidate.json").read_text())
         stored = self.dir / cand["id"] / "performance.json"
         now = self._benchmark(cand)
         if now is None or not stored.exists():
             return []
-        return drifted(json.loads(stored.read_text()), now, self.floors)
+        moved = drifted(json.loads(stored.read_text()), now, self.floors)
+        pending = self.dir / "drift-pending.json"
+        if moved and not pending.exists():
+            pending.write_text(json.dumps({"moved": moved, "utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}) + "\n")
+            return []
+        pending.unlink(missing_ok=True)
+        return moved
 
     def _benchmark(self, cand: dict) -> dict | None:
         work = self.dir / "work"
