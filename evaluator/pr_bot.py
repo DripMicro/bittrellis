@@ -279,14 +279,18 @@ def quality_gate_failures(quality: dict, gates: dict) -> list[str]:
 
 
 def reference_entries(me: dict, state: dict, live_heads: dict[int, str]) -> list[str]:
-    """State keys of earlier, measured PRs by other authors that are still open or merged.
+    """State keys of earlier, measured PRs by other authors that are still open.
 
     `live_heads`: {PR number: head sha} for open PRs and merged PRs. A later PR is ranked with these
-    already on the frontier, so it earns only what it adds over work already on the table.
+    already on the frontier, so it earns only what it adds over work already on the table. A merged PR is
+    left out: its artifact is in accepted/ already, and listing it twice named it twice in comments.
     """
     out = []
+    merged = state.get("_merged", {})
     for key, e in state.items():
         if not isinstance(e, dict) or e.get("status") not in RANKED or not e.get("artifact") or "first_seen" not in e:
+            continue
+        if str(e["pr"]) in merged:
             continue
         if e["pr"] == me["pr"] or e["author"].lower() == me["author"].lower() or e["first_seen"] >= me["first_seen"]:
             continue

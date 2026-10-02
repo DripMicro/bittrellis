@@ -43,6 +43,8 @@ def test_references_are_earlier_live_prs_by_other_authors():
     live = {1: "h", 2: "h", 3: "h", 4: "h", 5: "new"}
     assert pr_bot.reference_entries(me, state, live) == ["1-h"]  # not own, not later, not unmeasured, not a stale head
     assert pr_bot.reference_entries(me, state, {2: "h", 3: "h"}) == []  # #1 closed unmerged
+    state["_merged"]["1"] = "h"
+    assert pr_bot.reference_entries(me, state, live) == []        # merged: ranked from accepted/, not listed twice
 
 
 def test_status_and_comment():
