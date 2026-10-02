@@ -81,9 +81,27 @@ class BoxSpeeds:
     def reset(self) -> None:
         shutil.rmtree(self.dir, ignore_errors=True)
 
+    def adopt(self, art: Path) -> bool:
+        """Take a reference's own speed instead of rebuilding it, when it was measured on this machine after the
+        last full re-measurement -- a PR merged here was benchmarked by this evaluator an hour earlier, and
+        rebuilding a 19 GB checkpoint for a one-minute benchmark repeats that work."""
+        f, env_f, perf = self.dir / "machine.json", art / "environment.json", art / "performance.json"
+        if not (f.exists() and env_f.exists() and perf.exists()):
+            return False
+        doc, env = json.loads(f.read_text()), json.loads(env_f.read_text())
+        since = doc.get("calibrated_utc") or doc.get("measured_utc")
+        if {k: env.get(k) for k in doc["machine"]} != doc["machine"] or not since or env.get("time_utc", "") < since:
+            return False
+        cid = json.loads((art / "candidate.json").read_text())["id"]
+        (self.dir / cid).mkdir(exist_ok=True)
+        shutil.copyfile(perf, self.dir / cid / "performance.json")
+        return True
+
     def measure(self, refs: list[Path]) -> list[str]:
         """Rebuild and benchmark each reference; returns the ones that failed (they keep their stored speed)."""
         self.dir.mkdir(parents=True, exist_ok=True)
+        f = self.dir / "machine.json"
+        old = json.loads(f.read_text()) if f.exists() else {}
         failed = []
         for art in refs:
             cand = json.loads((art / "candidate.json").read_text())
@@ -94,8 +112,10 @@ class BoxSpeeds:
             (self.dir / cand["id"]).mkdir(exist_ok=True)
             (self.dir / cand["id"] / "performance.json").write_text(json.dumps(perf, indent=2) + "\n")
         if len(failed) < len(refs):
-            (self.dir / "machine.json").write_text(json.dumps(
-                {"machine": machine(self.sparkinfer), "measured_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}, indent=2) + "\n")
+            now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            # calibrated_utc: when every reference was last measured together (only a full re-measurement moves it)
+            f.write_text(json.dumps({"machine": machine(self.sparkinfer), "measured_utc": now,
+                                     "calibrated_utc": old.get("calibrated_utc") or old.get("measured_utc") or now}, indent=2) + "\n")
         return failed
 
     def check_drift(self, incumbent_art: Path) -> list[str]:

@@ -72,3 +72,25 @@ def test_drift_must_show_at_two_prs_in_a_row(tmp_path):
     assert bs.check_drift(v0) == []                               # back within noise: the note is cleared
     assert bs.check_drift(v0) == []
     assert bs.check_drift(v0) == ["peak_gpu_gib 22.016 -> 22.14"]  # two PRs in a row: re-measure
+
+
+def test_a_merged_result_measured_here_is_reused_not_rebuilt(tmp_path, monkeypatch):
+    here = {"gpu": "RTX 5090, 595.71.05", "cuda": "13.0", "cpu": "9950X", "sparkinfer_commit": "b1ed168"}
+    monkeypatch.setattr(speeds, "machine", lambda _: here)
+    bs = speeds.BoxSpeeds(tmp_path, None, [], [], "/none", FLOORS, "V0-baseline-rebuild")
+    bs.dir.mkdir()
+    (bs.dir / "machine.json").write_text(json.dumps({"machine": here, "measured_utc": "2026-10-02T20:43:28Z",
+                                                     "calibrated_utc": "2026-10-02T16:25:40Z"}))
+
+    def artifact(name, cid, env_time, **env):
+        art = tmp_path / name
+        art.mkdir()
+        (art / "candidate.json").write_text(json.dumps({"id": cid, "name": name}))
+        (art / "performance.json").write_text(json.dumps({"decode_tps": 93.3, "prefill_tps": 15828.0, "peak_gpu_gib": 22.39}))
+        (art / "environment.json").write_text(json.dumps({**here, **env, "time_utc": env_time}))
+        return art
+
+    assert bs.adopt(artifact("merged-here", "a" * 16, "2026-10-02T19:02:26Z"))
+    assert bs.has("a" * 16)
+    assert not bs.adopt(artifact("before-calibration", "b" * 16, "2026-10-02T15:00:00Z"))   # older speeds: rebuild
+    assert not bs.adopt(artifact("other-box", "c" * 16, "2026-10-02T19:00:00Z", cpu="5900X"))  # another machine

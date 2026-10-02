@@ -17,7 +17,8 @@ scored XL. So each ranked result's decode, prefill and peak memory are re-measur
 measures the PR, and the ranking uses those ([`evaluator/speeds.py`](../evaluator/speeds.py)):
 
 - When the evaluator starts on a machine, and after each merge, it rebuilds every ranked reference from its
-  recipe and runs only the performance stage (2 runs). A different machine discards the stored speeds.
+  recipe and runs only the performance stage (2 runs). A different machine discards the stored speeds. A PR
+  merged here keeps the speed it was measured at here, unless every reference was re-measured since.
 - V0 is re-measured next to every PR. If it moved beyond the ε margins below at two PRs in a row, every
   reference is re-measured before the second is ranked (a single reading past the margin is noise, not drift).
 - The speeds are published with the score record (`<epoch>/speeds/<time>/`), so a ranking can be re-derived.

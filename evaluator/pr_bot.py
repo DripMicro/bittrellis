@@ -558,6 +558,10 @@ class Evaluator:
         if not self.speeds:
             return
         todo = self.speeds.missing(references([Path(self.args.seeds), self.accepted]))
+        adopted = [a.name for a in todo if self.speeds.adopt(a)]
+        if adopted:
+            print(f"[speeds] measured here when evaluated, reused: {', '.join(adopted)}", flush=True)
+            todo = [a for a in todo if a.name not in adopted]
         if todo:
             print(f"[speeds] measuring {len(todo)} reference(s) on this machine", flush=True)
             failed = self.speeds.measure(todo)
