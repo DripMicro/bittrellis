@@ -1,0 +1,21 @@
+schema: bittrellis/manifest@2
+track: HPC-01
+name: gdn-fp8-mid24-35-lmhead-q4k
+description: >
+  The shipped NVFP4 map with two changes: FP8 on the recurrent projections of layers 24-35 only, and lm_head
+  stored BF16 so its batch-1 Q4_K is fitted once from the original weights. Every recipe that lowers drift so
+  far gives up a sixth to a half of prompt reading, because Q4_K on the recurrent path or the MLP, or FP8 on
+  the whole recurrent path, moves prefill off the shipped NVFP4 kernels. Measured on a pinned RTX 5090, FP8 on
+  this one mid-depth band (27 projections, 4% of the searchable weights) is where the 8 bits pay: it lowers
+  drift in every section, most in long context, while prefill stays within about 3% of V0 and decode within
+  about 2.5%. Wider bands (20-39, 24-47, 16-47) lower drift a little more but cost decode and prefill in
+  proportion to the FP8 bytes; a narrower one (24-31) gives up most of the gain. Every other recurrent layer,
+  attention and the MLP keep the shipped bytes.
+authors: [milosde111]
+default: NVFP4
+rules:
+  - match: "L*.gdn.*"
+    layers: "24-35"
+    format: FP8
+modules:
+  lm_head: Q4_K
