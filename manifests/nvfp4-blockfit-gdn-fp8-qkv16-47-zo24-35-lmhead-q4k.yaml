@@ -1,0 +1,29 @@
+schema: bittrellis/manifest@2
+track: HPC-01
+name: nvfp4-blockfit-gdn-fp8-qkv16-47-zo24-35-lmhead-q4k
+description: >
+  Between #74 (FP8 on all recurrent projections of layers 24-35, RP-KL 0.0896, decode 93.4) and #80 (FP8 on
+  recurrent qkv 1-63, RP-KL 0.0782, decode 89.5), both over nvfp4_blockfit with lm_head fitted once. On the
+  blockfit maps the qkv projection is where 8 bits pay most, and its gain concentrates in the middle of the
+  stack, so this keeps #74's band for z and out and extends FP8 on qkv to layers 16-47 only. About 1.8B weights
+  run FP8 instead of #74's 1.0B and #80's 2.5B: drift between the two at a decode about 2% above #80.
+authors: [kaivexa]
+default: NVFP4
+rules:
+  - match: "L*.mlp"
+    format: NVFP4
+    quantizer: nvfp4_blockfit
+  - match: "L*.attn.*"
+    format: NVFP4
+    quantizer: nvfp4_blockfit
+  - match: "L*.gdn.*"
+    format: NVFP4
+    quantizer: nvfp4_blockfit
+  - match: "L*.gdn.qkv"
+    layers: "16-47"
+    format: FP8
+  - match: "L*.gdn.*"
+    layers: "24-35"
+    format: FP8
+modules:
+  lm_head: Q4_K
