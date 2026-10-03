@@ -1,0 +1,30 @@
+schema: bittrellis/manifest@2
+track: HPC-01
+name: gdn-attn-q4k-early3-mid28-blockfit-rest-lmhead
+authors:
+- K-3-LT
+description: Retain merged PR54 execution formats and Q4_K windows. Independently
+  regenerate every remaining native MLP and layer-zero GDN projection with approved
+  blockfit; fit lm_head once from pinned BF16. Test the residual low-memory quality
+  gap without scanning layer ranges.
+default: NVFP4
+rules:
+- match: L*.mlp
+  format: NVFP4
+  quantizer: nvfp4_blockfit
+- match: L*.gdn.*
+  format: NVFP4
+  quantizer: nvfp4_blockfit
+- match: L*.gdn.*
+  layers: 1-63
+  format: Q4_K
+- match: L*.attn.*
+  format: Q4_K
+- match: L*.mlp
+  layers: 1-3
+  format: Q4_K
+- match: L*.mlp
+  layers: 28-31
+  format: Q4_K
+modules:
+  lm_head: Q4_K
