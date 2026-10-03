@@ -1,0 +1,35 @@
+schema: bittrellis/manifest@2
+track: HPC-01
+name: gdn-q4k-mlp-early8-mid24-skip0-attn-blockfit-rest-lmhead
+description: >
+  The recurrent and MLP Q4_K windows of gdn-attn-q4k-mlp-early8-mid24-skip0 (#37: 0.1091, decode 96.2,
+  prefill 10,258, 20.92 GiB), but with attention kept on NVFP4 and every NVFP4 projection re-encoded by
+  nvfp4_blockfit, lm_head fitted once from BF16. Two changes against #37 that pull the same way: the 31 MLP
+  layers (9-23 and 48-63) and layer 0 leave round-to-nearest bytes for blockfit (#28 cut an all-NVFP4 map
+  from 0.1357 to 0.0992 with the same kernels), and the 64 attention projections leave the runtime Q4_K fit,
+  the one place where Q4_K cost task answers (V5: -33 of 784) and where blockfit NVFP4 bytes are closest to
+  BF16. Attention is 6.6% of the weights, so decode and peak memory should sit within noise of #37 and its
+  prefill should rise a little; drift is expected near 0.092-0.097 with tasks at or above #37's 572.
+authors: [gold-tree-tech]
+default: NVFP4
+rules:
+  - match: "L*.mlp"
+    format: NVFP4
+    quantizer: nvfp4_blockfit
+  - match: "L*.attn.*"
+    format: NVFP4
+    quantizer: nvfp4_blockfit
+  - match: "L*.gdn.*"
+    format: NVFP4
+    quantizer: nvfp4_blockfit
+  - match: "L*.gdn.*"
+    layers: "1-63"
+    format: Q4_K
+  - match: "L*.mlp"
+    layers: "1-8"
+    format: Q4_K
+  - match: "L*.mlp"
+    layers: "24-47"
+    format: Q4_K
+modules:
+  lm_head: Q4_K
