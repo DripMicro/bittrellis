@@ -45,6 +45,39 @@ def references(paths: list[Path]) -> list[Path]:
     return arts
 
 
+def speed_manifest(manifest: dict) -> tuple[dict, bool]:
+    """The recipe as built for a speed run: same formats, with every regenerable encoder replaced by its format's
+    default bytes. Speed and memory do not depend on the byte values within a format (on this evaluator, #28's and
+    #32's recipes measured within 0.4% of their real bytes, inside every noise floor), while an encoder such as
+    nvfp4_blockfit takes ~17 min to rebuild a checkpoint that the defaults write in under a minute."""
+    from bittrellis import quantizers as Q
+
+    m, changed = json.loads(json.dumps(manifest)), False
+
+    def swap(fmt, q):
+        return q and q in Q.REGISTRY and Q.REGISTRY[q].lineage == "regenerable" and q != Q.DEFAULT_FOR_FORMAT.get(fmt)
+
+    for r in m.get("rules", []):
+        if swap(r.get("format"), r.get("quantizer")):
+            r.pop("quantizer")
+            r.pop("params", None)
+            changed = True
+    for fmt, q in list((m.get("quantizers") or {}).items()):
+        if swap(fmt, q):
+            m["quantizers"][fmt] = Q.DEFAULT_FOR_FORMAT[fmt]
+            changed = True
+    if changed:
+        m.pop("expanded", None)
+        m["name"] = m["name"] + "-speed"
+    return m, changed
+
+
+def kernels(manifest: dict) -> dict:
+    """Per unit: the stored format and the kernels it runs on -- what a speed run depends on."""
+    return {u: (e.get("source_format"), json.dumps(e.get("execution"), sort_keys=True))
+            for u, e in (manifest.get("expanded") or {}).items()}
+
+
 def drifted(stored: dict, now: dict, floors: dict) -> list[str]:
     """Objectives on which a re-measurement moved beyond the noise floor (relative for speed, GiB for memory)."""
     out = []
@@ -143,21 +176,25 @@ class BoxSpeeds:
         work.mkdir(parents=True)
         is_v0 = cand["name"] == self.incumbent  # V0's checkpoint is kept: it is re-measured next to every PR
         ckpt = self.dir / "v0-checkpoint" if is_v0 else work / "checkpoint"
+        fast_bytes = False   # V0 is built from its own recipe (default bytes already) and kept
         try:
             if not (ckpt / "bittrellis_build.json").exists():
                 shutil.rmtree(ckpt, ignore_errors=True)
                 manifest = work / "manifest.yaml"
-                manifest.write_text(json.dumps(cand["manifest"]))  # YAML is a superset of JSON
+                built, fast_bytes = speed_manifest(cand["manifest"])
+                manifest.write_text(json.dumps(built))  # YAML is a superset of JSON
                 if self.run(self.py + ["build", str(manifest), "--out", str(ckpt)] + self.env_args, self.dir, self.log) != 0:
                     return None
             out = work / "artifact"
             if self.run(self.py + ["benchmark", str(ckpt), "--out", str(out), "--sparkinfer", self.sparkinfer] + self.env_args,
                         self.dir, self.log) != 0:
                 return None
-            got = json.loads((out / "candidate.json").read_text())["id"]
-            if got != cand["id"]:  # the recipe must rebuild to exactly the reference that is ranked
+            got = json.loads((out / "candidate.json").read_text())
+            # exactly the reference that is ranked -- or, with default bytes, the same formats on the same kernels
+            same = (kernels(got.get("manifest", {})) == kernels(cand["manifest"])) if fast_bytes else got["id"] == cand["id"]
+            if not same:
                 with open(self.log, "a") as fh:
-                    fh.write(f"[speeds] {cand['name']}: rebuilt candidate id {got} != {cand['id']}\n")
+                    fh.write(f"[speeds] {cand['name']}: rebuilt checkpoint is not the ranked reference ({got['id']})\n")
                 return None
             return json.loads((out / "performance.json").read_text())
         finally:

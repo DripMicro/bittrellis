@@ -94,3 +94,20 @@ def test_a_merged_result_measured_here_is_reused_not_rebuilt(tmp_path, monkeypat
     assert bs.has("a" * 16)
     assert not bs.adopt(artifact("before-calibration", "b" * 16, "2026-10-02T15:00:00Z"))   # older speeds: rebuild
     assert not bs.adopt(artifact("other-box", "c" * 16, "2026-10-02T19:00:00Z", cpu="5900X"))  # another machine
+
+
+def test_speed_runs_build_regenerable_encoders_with_default_bytes():
+    blockfit = {"schema": "bittrellis/manifest@2", "track": "HPC-01", "name": "x", "default": "NVFP4",
+                "rules": [{"match": "L*.mlp", "format": "NVFP4", "quantizer": "rtn"},
+                          {"match": "L*.gdn.qkv", "format": "FP8", "quantizer": "rtn"},
+                          {"match": "L*.attn.*", "format": "NVFP4", "quantizer": "unsloth"}],
+                "expanded": {"L0.mlp": {}}}
+    built, changed = speeds.speed_manifest(blockfit)
+    assert changed and built["name"] == "x-speed" and "expanded" not in built
+    assert "quantizer" not in built["rules"][0]                    # regenerable, not the NVFP4 default: default bytes
+    assert built["rules"][1]["quantizer"] == "rtn"                 # already FP8's default
+    assert built["rules"][2]["quantizer"] == "unsloth"             # attested bytes are copied as they are
+    assert speeds.speed_manifest({**blockfit, "rules": blockfit["rules"][1:]}) == ({**blockfit, "rules": blockfit["rules"][1:]}, False)
+    a = {"expanded": {"L0.mlp": {"source_format": "NVFP4", "quantizer": "rtn@v1", "execution": {"decode_b1": "NVFP4"}}}}
+    b = {"expanded": {"L0.mlp": {"source_format": "NVFP4", "quantizer": "baseline@v1", "execution": {"decode_b1": "NVFP4"}}}}
+    assert speeds.kernels(a) == speeds.kernels(b)                   # bytes differ, kernels do not
