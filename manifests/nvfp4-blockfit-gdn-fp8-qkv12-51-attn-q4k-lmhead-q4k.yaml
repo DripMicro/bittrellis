@@ -1,0 +1,27 @@
+schema: bittrellis/manifest@2
+track: HPC-01
+name: nvfp4-blockfit-gdn-fp8-qkv12-51-attn-q4k-lmhead-q4k
+description: >
+  #93 (FP8 recurrent qkv 1-63, attention on runtime Q4_K, nvfp4_blockfit on every other NVFP4 projection,
+  lm_head fitted once: RP-KL 0.0743, decode 89.3) with the FP8 qkv narrowed to layers 12-51 (30 of the 47 GDN
+  layers). Each FP8 qkv layer costs about 0.13 tok/s of decode, but its drift gain is not spread evenly: the
+  mid-depth layers lower drift most per byte (#63, #74), and the gain saturates as more of the recurrent path
+  goes to 8 bits (#86 to #88, #32 to #92). Keeping the shallow and deepest qkv on blockfit NVFP4 should give
+  back about 2.2 tok/s decode, 0.7k prefill and 0.3 GiB while keeping most of #93's drift gain: a point between
+  #93 and #83 (0.0849, decode 91.3) that neither covers.
+authors: [ShandyMaeCamingawan]
+default: NVFP4
+rules:
+  - match: "L*.mlp"
+    format: NVFP4
+    quantizer: nvfp4_blockfit
+  - match: "L*.attn.*"
+    format: Q4_K
+  - match: "L*.gdn.*"
+    format: NVFP4
+    quantizer: nvfp4_blockfit
+  - match: "L*.gdn.qkv"
+    layers: "12-51"
+    format: FP8
+modules:
+  lm_head: Q4_K
