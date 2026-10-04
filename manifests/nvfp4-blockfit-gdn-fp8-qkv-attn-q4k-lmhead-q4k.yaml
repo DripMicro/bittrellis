@@ -1,0 +1,24 @@
+schema: bittrellis/manifest@2
+track: HPC-01
+name: nvfp4-blockfit-gdn-fp8-qkv-attn-q4k-lmhead-q4k
+description: >
+  #80 (FP8 recurrent qkv 1-63, nvfp4_blockfit on every other NVFP4 projection, lm_head fitted once: RP-KL 0.0782,
+  decode 89.5) with attention on runtime Q4_K. On the blockfit map the same change lowered drift by 0.0083 and
+  peak memory by 0.17 GiB at equal decode (#28 to #91). Attention is untouched by the FP8 qkv, so the gain should
+  largely carry over: drift near #32's at #80's decode and about 0.7 GiB less memory than #32.
+authors: [kaivexa]
+default: NVFP4
+rules:
+  - match: "L*.mlp"
+    format: NVFP4
+    quantizer: nvfp4_blockfit
+  - match: "L*.attn.*"
+    format: Q4_K
+  - match: "L*.gdn.*"
+    format: NVFP4
+    quantizer: nvfp4_blockfit
+  - match: "L*.gdn.qkv"
+    layers: "1-63"
+    format: FP8
+modules:
+  lm_head: Q4_K
