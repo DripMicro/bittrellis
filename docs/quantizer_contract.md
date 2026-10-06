@@ -55,12 +55,12 @@ h = input_hessian(ctx, lin)      # None for down_proj: fall back, e.g. to round-
 ```
 
 - **Text:** [`data/calibration/hpc01-calib-v1.json`](../data/calibration/README.md), 327,680 tokens of public
-  text, disjoint from the drift corpus and the task questions.
+  text; no document shares a run of 50 normalized characters with the drift corpus or the task questions.
 - **Statistics:** computed once by the maintainers from the BF16 model, 6.7 GB, every file pinned by sha256
   in `configs/sources.lock.json` (source `calibration`). `bittrellis calibration fetch` downloads and verifies
   them into `models/hpc01-calib-v1/`; every command that builds or audits reads them from there
-  (`--calibration` to change it). The build, the sandboxed audit replay and the fingerprint probe all
-  see the same statistics; the probe's tiny synthetic model has its own seeded ones.
+  (`--calibration` to change it). The build and the sandboxed audit replay read the same pinned files;
+  the fingerprint probe runs encoders on a tiny synthetic model with its own seeded statistics.
 - **Not yet:** down projection, attention and recurrent inputs. The down projection follows if gate/up
   gains carry over to the holdout.
 
