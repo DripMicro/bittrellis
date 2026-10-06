@@ -120,7 +120,7 @@ observe PR heads ─▶ SCREEN (no GPU): queue share · validate · duplicate ·
         │
    public RP-KL + correctness + needles ──gate fail──▶ stop
         │
-   2 performance runs (decode, 4K prefill, peak GPU, host RAM) ──dominated──▶ stop (tasks, holdout skipped)
+   2 performance runs (decode, 4K prefill, peak GPU, host RAM) ──dominated or below XS──▶ stop (tasks, holdout skipped)
         │
    task guard ─▶ private holdout (PASS/FAIL) ─▶ gates ─▶ ε-frontier vs seeds + accepted + earlier open PRs ─▶ FG-2
 ```

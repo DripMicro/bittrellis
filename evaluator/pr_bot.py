@@ -990,6 +990,13 @@ class Evaluator:
                 notes.append("Tasks and private holdout skipped: they can only fail a result, and this one is already "
                              f"{'dominated' if label == 'dominated' else 'invalid'} on the measured objectives.")
                 return self._report(pr, cand, art, ckpt, frontier, label, notes, screen, refs, skipped, finish, work)
+            if tier_for("frontier", row.get("frontier_gain"), REWARDS["tiers_fg2"]) == "none":
+                # below the lowest tier already: the holdout and the tasks can only fail it, so they cannot change
+                # the outcome (eval:none, closed). A later re-rank that lifts it resumes them (see rerank).
+                skipped = ["tasks", "holdout"]
+                notes.append("Tasks and private holdout skipped: they can only fail a result, and this one is already "
+                             "below the lowest paid tier on the measured objectives.")
+                return self._report(pr, cand, art, ckpt, frontier, "frontier", notes, screen, refs, skipped, finish, work)
         # ---- stage 3: holdout, then tasks ----
         # The holdout runs first: it takes a quarter of the time, and a result that fails it is rejected
         # whatever the tasks show, so its 784 task questions would be wasted GPU time.

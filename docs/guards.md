@@ -29,14 +29,16 @@ Code: [`evaluator/guards.py`](../evaluator/guards.py), [`bittrellis/fingerprint.
  MEASURE (GPU) ───────────────────────────────────────────┤
    quality ~4.5 min → quality gates fail? stop                          bt:gate-fail
    2 speed runs ~1 min → dominated? stop, skip tasks + holdout          bt:dominated
+                       → below the lowest tier (XS)? stop, same skip    bt:frontier + eval:none
    tasks ~4 min → private holdout → rank                                bt:frontier / bt:dominated / bt:gate-fail
 ```
 
 Stage times: evaluator dry run on the pinned RTX 5090 (PR #1). A dominated result uses about 6 GPU
 minutes instead of about 15.
 
-**Skipping is safe:** tasks and the holdout can fail a result, never lift one. If a re-rank later
-makes a skipped result non-dominated (e.g. an earlier PR it was ranked against closes), the bot
+**Skipping is safe:** tasks and the holdout can fail a result, never lift one, so a result that is dominated or
+already below XS ends the same way without them. If a re-rank later
+makes a skipped result non-dominated or lifts it to a tier (e.g. an earlier PR it was ranked against closes), the bot
 rebuilds it and runs the skipped stages before labelling it `bt:frontier`.
 
 ## Who was first

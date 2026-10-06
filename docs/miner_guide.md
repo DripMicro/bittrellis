@@ -89,7 +89,7 @@ One manifest per PR in `manifests/`, hypothesis in `description`. Don't touch th
 2. **Audit:** legal formats and quantizers, lineage proven, frozen tensors untouched.
 3. **Gates:** runtime correctness · RP-KL ≤ 0.30 and top-1 ≥ 0.80 · every BF16-retrievable needle at
    8K/16K/32K · no significant task loss vs V0 on all 784 questions, paired per question · private holdout PASS. Stops early: a
-   quality-gate fail skips speed runs; dominated after them skips tasks and holdout.
+   quality-gate fail skips speed runs; dominated or below XS after them skips tasks and holdout.
 4. **ε-frontier:** RP-KL ↓ · decode ↑ · 4K prefill ↑ · peak GPU memory ↓, noise-aware, against V0,
    seeds, accepted results and earlier open PRs by other authors. [frontier.md](frontier.md)
 5. **FG-2 → tier:** dominated, invalid or duplicate: 0; else `eval:XL` (≥ 0.50%) … `eval:XS` (≥ 0.005%), counting only gains beyond noise; no holdout PASS, no tier.

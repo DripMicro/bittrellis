@@ -356,3 +356,25 @@ def test_a_rerank_in_the_same_tier_still_updates_the_score_that_orders_merges(bo
     e["speeds"] = "measured on another machine"                   # forces the re-rank
     ev.rerank(gh.prs)
     assert e["tier"] == tier and e["gain"] == new and e["row"]["frontier_gain"] == new
+
+
+def test_a_result_below_the_lowest_tier_skips_the_holdout_and_tasks(bot, monkeypatch):
+    sha = _one_frontier_pr(bot)
+    bot.args.auto_merge = False
+    monkeypatch.setitem(pr_bot.REWARDS, "tiers_fg2", {t: 1.0 for t in pr_bot.TIERS})   # every gain is below XS
+    gh = FakeGitHub([pr(1, "alice", sha)])
+    ev = pr_bot.Evaluator(gh, bot.args)
+    ev.run_once()
+    assert (1, "holdout") not in bot.stages and (1, "tasks") not in bot.stages
+    assert "eval:none" in gh.labels[1] and 1 in gh.closed
+    assert "below the lowest paid tier" in gh.comments[1][0]
+    assert ev.state[f"1-{sha[:12]}"]["skipped"] == ["tasks", "holdout"]
+
+
+def test_a_result_above_the_lowest_tier_still_runs_the_holdout_and_tasks(bot):
+    sha = _one_frontier_pr(bot)
+    bot.args.auto_merge = False
+    gh = FakeGitHub([pr(1, "alice", sha)])
+    pr_bot.Evaluator(gh, bot.args).run_once()
+    assert (1, "holdout") in bot.stages and (1, "tasks") in bot.stages
+    assert {f"eval:{t}" for t in pr_bot.TIERS} & set(gh.labels[1])
