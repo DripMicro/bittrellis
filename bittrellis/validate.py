@@ -29,6 +29,7 @@ import numpy as np
 
 from . import quantizers as Q
 from .build import _declared, encode_unit
+from .calibration import open_calibration
 from .lineage import LineageError, require_verified
 from .manifest import Assignment, Manifest
 from .model.qwen38 import Qwen38Arch, Unit
@@ -125,15 +126,19 @@ def replay_cache_dir() -> Path:
 
 def _replay_key(qz: Q.Quantizer, units: list[Unit], assignments: dict[str, Assignment], unit: Unit) -> str:
     """Identity of a regenerated unit: the quantizer version, the base weights, and -- for sequential
-    quantizers -- every assignment of that quantizer up to and including the unit (its pipeline prefix)."""
+    quantizers -- every assignment of that quantizer up to and including the unit (its pipeline prefix) --
+    plus the pinned calibration files, which a calibrated encoder reads."""
     from .lineage import load_lock
 
-    base_rev = load_lock()["sources"]["base"]["revision"]
+    lock = load_lock()["sources"]
+    base_rev = lock["base"]["revision"]
+    calib = lock.get("calibration", {}).get("files")
     if qz.replay_mode == "sequential":
         prefix = [f"{u.id}={assignments[u.id].key()}" for u in units[: units.index(unit) + 1] if assignments[u.id].quantizer == qz.name]
     else:
         prefix = [f"{unit.id}={assignments[unit.id].key()}"]
-    return hashlib.sha256(json.dumps([qz.ref, base_rev, prefix]).encode()).hexdigest()
+    key = [qz.ref, base_rev, prefix] + ([calib] if calib else [])
+    return hashlib.sha256(json.dumps(key, sort_keys=True).encode()).hexdigest()
 
 
 def regenerate(qz: Q.Quantizer, units: list[Unit], assignments: dict[str, Assignment], ctx: Q.QuantContext,
@@ -248,9 +253,16 @@ def audit(ckpt_dir: str | Path, manifest: Manifest, source_dirs: dict[str, Path]
                 return res
 
     handles = {s: SafeTensorsDir(source_dirs[s]) for s in used_sources}
+    calib = None
     try:
+        if "calibration" in source_dirs:
+            try:
+                calib = open_calibration(source_dirs["calibration"], verify_sources, log)
+            except LineageError as e:
+                res.fail(str(e))
+                return res
         base, frozen = handles["base"], handles["gittensor_nvfp4"]
-        ctx = Q.QuantContext(base=base, sources=handles)
+        ctx = Q.QuantContext(base=base, sources=handles, calibration=calib)
         with SafeTensorsDir(ckpt_dir) as ck:
             resolved = resolve_checkpoint(ck, units)
             res.runtime = {uid: r.label for uid, r in resolved.items()}
@@ -314,6 +326,6 @@ def audit(ckpt_dir: str | Path, manifest: Manifest, source_dirs: dict[str, Path]
                                                "units": sum(1 for a in assignments.values() if a.quantizer == qname),
                                                "bytes_checked": check_bytes}
     finally:
-        for h in handles.values():
+        for h in [*handles.values(), *([calib] if calib else [])]:
             h.close()
     return res

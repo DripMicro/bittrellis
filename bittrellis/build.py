@@ -27,6 +27,7 @@ import yaml
 
 from . import __version__
 from . import quantizers as Q
+from .calibration import open_calibration
 from .lineage import require_verified
 from .manifest import Assignment, Manifest, candidate_hash, summarize
 from .model.qwen38 import Qwen38Arch, Unit
@@ -205,8 +206,11 @@ def open_context(assignments: dict[str, Assignment], source_dirs: dict[str, Path
         for s in sorted(needed):
             require_verified(s, source_dirs[s], log=log)
     opened = {s: SafeTensorsDir(source_dirs[s]) for s in needed}
-    ctx = Q.QuantContext(base=opened["base"], sources=opened)
-    return ctx, list(opened.values())
+    # The calibration statistics are opened whenever they are provided: whether an encoder reads them is
+    # its own business, and the sandbox gets the same view as the trusted audit.
+    calib = open_calibration(source_dirs["calibration"], verify, log) if "calibration" in source_dirs else None
+    ctx = Q.QuantContext(base=opened["base"], sources=opened, calibration=calib)
+    return ctx, list(opened.values()) + ([calib] if calib else [])
 
 
 def build(manifest: Manifest, track: Track, source_dirs: dict[str, Path], out_dir: Path,

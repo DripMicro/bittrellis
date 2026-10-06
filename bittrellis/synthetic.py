@@ -87,3 +87,16 @@ def make_tiny(root: Path, seed: int = 0) -> tuple[Path, Path, Path]:
     (bl_dir / "config.json").write_text(json.dumps({**cfg, "quantization_config": {"quant_method": "modelopt", "quant_algo": "NVFP4"}}))
     (bl_dir / "tokenizer.json").write_text("{}")
     return base_dir, bl_dir, ct_dir
+
+
+def make_tiny_calibration(root: Path, seed: int = 0) -> Path:
+    """Seeded stand-in for the pinned calibration statistics of the tiny model: one positive definite
+    mean x xᵀ per layer's MLP input (bittrellis/calibration.py)."""
+    rng = np.random.default_rng([seed, 7])
+    w = ShardWriter(root / "calibration", 1 << 20)
+    h = TINY_TEXT["hidden_size"]
+    for i in range(TINY_TEXT["num_hidden_layers"]):
+        x = rng.standard_normal((4 * h, h)) * rng.uniform(0.2, 3.0, h)   # uneven channel scales, like real activations
+        w.add(f"model.language_model.layers.{i}.mlp.input_xtx", "F32", (h, h), (x.T @ x / len(x)).astype("<f4"))
+    w.close()
+    return root / "calibration"

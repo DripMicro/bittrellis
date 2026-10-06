@@ -537,8 +537,9 @@ class Evaluator:
             self.ledger = Ledger(Path(args.ledger), self.epoch)
             os.chmod(self.ledger.root, 0o700)
         self.py = [sys.executable, "-m", "bittrellis.cli"]
-        self.env_args = ["--base", args.base, "--shipped", args.shipped, "--unsloth", args.unsloth]
-        self.sources = {"base": Path(args.base), "gittensor_nvfp4": Path(args.shipped), "unsloth_nvfp4": Path(args.unsloth)}
+        self.env_args = ["--base", args.base, "--shipped", args.shipped, "--unsloth", args.unsloth, "--calibration", args.calibration]
+        self.sources = {"base": Path(args.base), "gittensor_nvfp4": Path(args.shipped), "unsloth_nvfp4": Path(args.unsloth),
+                        "calibration": Path(args.calibration)}
         fr = self.track["frontier"]
         self.speeds = BoxSpeeds(self.root, lambda *a, **k: run(*a, **k), self.py, self.env_args, args.sparkinfer,
                                 fr["epsilon_floor"], fr["incumbent"]) if getattr(args, "box_speeds", True) else None
@@ -1036,7 +1037,8 @@ class Evaluator:
             return [f"sandbox account {self.args.sandbox_user} does not exist (run evaluator/setup_sandbox.sh)"]
         secrets_ = [self.secret_path, self.state_path, Path(self.args.token_file)] if self.args.token_file else [self.secret_path, self.state_path]
         protected = [self.accepted, self.obs.dir] + ([Path(self.args.private)] if self.args.private else [])
-        return self.sandbox.problems(secrets_, protected, [Path(self.args.base), Path(self.args.shipped), Path(self.args.unsloth)])
+        return self.sandbox.problems(secrets_, protected, [Path(self.args.base), Path(self.args.shipped), Path(self.args.unsloth),
+                                                           Path(self.args.calibration)])
 
     def _runner(self, untrusted: bool):
         if not untrusted or self.args.no_sandbox:
@@ -1185,6 +1187,8 @@ def main() -> int:
     ap.add_argument("--base", default=str(REPO_ROOT / "models/Qwen3.8-27B"))
     ap.add_argument("--shipped", default=str(REPO_ROOT / "models/Qwen3.8-27B-NVFP4-RTX5090"))
     ap.add_argument("--unsloth", default=str(REPO_ROOT / "models/Qwen3.8-27B-NVFP4-unsloth"))
+    ap.add_argument("--calibration", default=str(REPO_ROOT / "models/hpc01-calib-v1"),
+                    help="pinned calibration statistics (bittrellis calibration fetch)")
     ap.add_argument("--sparkinfer", default=str(REPO_ROOT / "third_party/sparkinfer"))
     ap.add_argument("--reference", default=str(REPO_ROOT / "data/reference/hpc01-public-v2-k256"))
     ap.add_argument("--seeds", default=str(REPO_ROOT / "results/feasibility/artifacts"))

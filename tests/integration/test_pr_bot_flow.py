@@ -139,7 +139,7 @@ def bot(tmp_path, monkeypatch):
 
     monkeypatch.setattr(pr_bot, "run", fake_run)
     monkeypatch.setattr(pr_bot.subprocess, "run", fake_subprocess_run)
-    args = SimpleNamespace(root=str(tmp_path / "eval"), base="/nonexistent", shipped="/nonexistent", unsloth="/nonexistent",
+    args = SimpleNamespace(root=str(tmp_path / "eval"), base="/nonexistent", shipped="/nonexistent", unsloth="/nonexistent", calibration="/nonexistent",
                            sparkinfer="/nonexistent", reference="/nonexistent", seeds=str(SEEDS), private="/nonexistent-private",
                            keep_checkpoints=False, ledger=str(tmp_path / "ledger"), ledger_remote=None, box_speeds=False)
     return SimpleNamespace(args=args, recipes=recipes, stages=stages_run, holdout=holdout, box=box)

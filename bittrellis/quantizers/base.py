@@ -11,21 +11,20 @@ quantizer declares:
     - "regenerable"  implemented here; the evaluator rebuilds sampled tensors and compares bytes
     - "attested"     copied from a maintainer-approved, hash-pinned checkpoint (sources.lock.json)
 * `replay_mode`             for regenerable quantizers:
-    - "independent"  a tensor depends only on its own BF16 weight (and the calibration manifest)
+    - "independent"  a tensor depends only on its own BF16 weight (and the pinned calibration statistics)
     - "sequential"   a tensor may depend on earlier quantized layers (GPTQ-style propagation);
                      the audit replays the pipeline in `pipeline_order` up to each sampled unit
 
 Rules every quantizer must follow (enforced by the audit):
 * only the searchable Linear's own tensors may be produced -- never norms, neighbours or scales
   folded into other tensors (no SmoothQuant/AWQ-style migration);
-* output must be deterministic for (base weights, version, params, calibration manifest);
+* output must be deterministic for (base weights, version, params, pinned calibration statistics);
 * NVFP4 in the ModelOpt or compressed-tensors layout, FP8 as E4M3 with one BF16 scale per row.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from pathlib import Path
 
 import numpy as np
 
@@ -43,7 +42,7 @@ class QuantContext:
     base: SafeTensorsDir                       # canonical BF16 weights
     sources: dict[str, SafeTensorsDir]         # verified attested sources by source id
     params: dict = field(default_factory=dict)  # per-quantizer parameters from the manifest
-    calibration: Path | None = None            # calibration manifest (public calibration split)
+    calibration: SafeTensorsDir | None = None  # pinned calibration statistics; read them with input_hessian()
     state: dict = field(default_factory=dict)  # scratch space for sequential quantizers
 
 
@@ -93,3 +92,21 @@ def f32_weight(ctx: QuantContext, lin: Linear) -> np.ndarray:
     for r, rows in f32_rows(ctx, lin):
         out[r : r + len(rows)] = rows
     return out
+
+
+def input_hessian(ctx: QuantContext, lin: Linear) -> np.ndarray | None:
+    """Mean x xᵀ of the Linear's BF16 input over the pinned calibration text: a read-only float32
+    [cols, cols] array, or None when the pinned calibration has no statistics for this Linear.
+
+    Epoch hpc01-e6 provides it for the MLP gate_proj and up_proj (they share one input). Down
+    projections, attention and recurrent projections return None. See bittrellis/calibration.py.
+    """
+    from ..calibration import stat_name
+
+    name = stat_name(lin.prefix)
+    if ctx.calibration is None or name is None or ctx.calibration.get(name) is None:
+        return None
+    h = ctx.calibration.array(name, "<f4")
+    if h.shape != (lin.cols, lin.cols):
+        raise ValueError(f"calibration {name}: shape {h.shape}, expected {(lin.cols, lin.cols)}")
+    return h

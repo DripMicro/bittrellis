@@ -62,6 +62,21 @@ bittrellis search neighbors <manifest> --out proposals/
 often the biggest win: implement the [quantizer contract](quantizer_contract.md), submit it with one
 manifest using it, and wait for maintainer review and `eval-approved`.
 
+Open encoder work (epoch hpc01-e6):
+
+- **Calibrated MLP encoders.** `bittrellis calibration fetch` downloads the pinned statistics (6.7 GB);
+  `input_hessian(ctx, lin)` gives each layer's MLP gate/up input statistics for GPTQ-style rounding
+  ([contract](quantizer_contract.md#calibration-statistics-epoch-hpc01-e6)).
+- **FP8 bytes.** Every FP8 tensor today is round-to-nearest (`rtn`); smarter per-row scales need no calibration.
+- **Sequential encoders.** The audit replays `replay_mode: sequential` (error carried from earlier layers);
+  no encoder uses it yet.
+
+Check a gain against text you did not tune on before you submit: `bittrellis corpus build --split
+public-validation --out data/corpus/validation.json` builds the other half of the public sources, then
+`bittrellis reference --corpus data/corpus/validation.json --out data/reference/validation` and
+`bittrellis evaluate-public <checkpoint> --corpus data/corpus/validation.json --reference data/reference/validation --out <dir>`.
+It is not the holdout (anyone can rebuild it), but a gain that vanishes there will not carry over.
+
 ## 4. Measure locally (optional)
 
 RTX 5090 host, ~120 GB disk, ~60 GB RAM. Your numbers help you iterate but are never scored.

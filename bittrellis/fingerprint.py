@@ -32,7 +32,7 @@ SKETCH_BYTES = 1 << 16
 
 def probe(names: list[str] | None, seed: int) -> dict[str, bytes]:
     """{"quantizer@vN|FORMAT|unit|suffix": bytes} for every regenerable quantizer (or `names`)."""
-    from .synthetic import TINY_TEXT, make_tiny
+    from .synthetic import TINY_TEXT, make_tiny, make_tiny_calibration
 
     selected = [q for q in Q.REGISTRY.values() if q.lineage == "regenerable" and (names is None or q.name in names)]
     out: dict[str, bytes] = {}
@@ -40,10 +40,11 @@ def probe(names: list[str] | None, seed: int) -> dict[str, bytes]:
         base, baseline, ct = make_tiny(Path(tmp), seed=seed)
         units = Qwen38Arch.from_config({"text_config": TINY_TEXT}).units()
         handles = {"base": SafeTensorsDir(base), "gittensor_nvfp4": SafeTensorsDir(baseline), "unsloth_nvfp4": SafeTensorsDir(ct)}
+        calib = SafeTensorsDir(make_tiny_calibration(Path(tmp), seed=seed))
         try:
             for qz in selected:
                 for fmt in qz.formats:
-                    ctx = Q.QuantContext(base=handles["base"], sources=handles)
+                    ctx = Q.QuantContext(base=handles["base"], sources=handles, calibration=calib)
                     qz.begin(ctx)
                     for u in units:
                         if not qz.supports(u, fmt) or qz.available(ctx, u, fmt) is not None:
@@ -53,7 +54,7 @@ def probe(names: list[str] | None, seed: int) -> dict[str, bytes]:
                             for suffix, _dtype, _shape, data in qz.encode(ctx, u, lin, fmt):
                                 out[f"{qz.ref}|{fmt}|{lin.prefix}|{suffix}"] = _bytes(data)
         finally:
-            for h in handles.values():
+            for h in [*handles.values(), calib]:
                 h.close()
     return out
 
@@ -142,13 +143,13 @@ def reference_sketches(source_dirs: dict[str, Path], units: list, fmt_by_unit: d
     sources. Compared with a submission's sketches, this catches an encoder that reproduces an existing
     one on real weights, including one that splices attested bytes.
     """
-    handles = {k: SafeTensorsDir(v) for k, v in source_dirs.items()}
+    handles = {k: SafeTensorsDir(v) for k, v in source_dirs.items() if k != "calibration" or Path(v).is_dir()}
     out: dict[str, dict[str, bytes]] = {}
     try:
         for qz in Q.REGISTRY.values():
             if qz.lineage == "runtime":
                 continue
-            ctx = Q.QuantContext(base=handles["base"], sources=handles)
+            ctx = Q.QuantContext(base=handles["base"], sources=handles, calibration=handles.get("calibration"))
             began = False
             for u in units:
                 fmt = fmt_by_unit[u.id]

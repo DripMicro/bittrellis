@@ -38,10 +38,34 @@ rule: `quantizer: gptq_nvfp4`, optionally with `params: {damp: 0.01, blocksize: 
 | Allowed | Not allowed (audit or reviewers reject) |
 |---|---|
 | read the unit's BF16 weight (`ctx.base`) | read or emit other tensors' bytes |
-| read the pinned public calibration manifest (`ctx.calibration`) — **not provided yet**: it is always `None`, so calibrated encoders cannot work in this epoch | fetch network data at build time |
+| read the pinned calibration statistics (`input_hessian(ctx, lin)`, below) | fetch network data at build time |
 | search scale, clipping, rounding, act-order, error feedback inside the tensor | move scales into norms or neighbouring Linears (SmoothQuant/AWQ-style migration) |
 | keep cross-unit state (`ctx.state`) if `replay_mode = "sequential"` | depend on wall-clock time, unseeded randomness or GPU nondeterminism |
 | emit NVFP4 (ModelOpt layout) or FP8 (E4M3 + one BF16 scale per row) | emit a format the loader silently converts ([precision_space.md](precision_space.md)) |
+
+### Calibration statistics (epoch hpc01-e6)
+
+`input_hessian(ctx, lin)` (in [`base.py`](../bittrellis/quantizers/base.py)) returns the mean x xᵀ of the
+Linear's input over the pinned calibration text, as the BF16 model computes it: a read-only float32
+`[5120, 5120]` array for every layer's MLP `gate_proj` and `up_proj` (they share one input), and `None` for
+every other Linear. An MLP unit also holds `down_proj`, so a calibrated MLP encoder needs a fallback for it.
+
+```python
+h = input_hessian(ctx, lin)      # None for down_proj: fall back, e.g. to round-to-nearest
+```
+
+- **Text:** [`data/calibration/hpc01-calib-v1.json`](../data/calibration/README.md), 327,680 tokens of public
+  text, disjoint from the drift corpus and the task questions.
+- **Statistics:** computed once by the maintainers from the BF16 model, 6.7 GB, every file pinned by sha256
+  in `configs/sources.lock.json` (source `calibration`). `bittrellis calibration fetch` downloads and verifies
+  them into `models/hpc01-calib-v1/`; every command that builds or audits reads them from there
+  (`--calibration` to change it). The build, the sandboxed audit replay and the fingerprint probe all
+  see the same statistics; the probe's tiny synthetic model has its own seeded ones.
+- **Not yet:** down projection, attention and recurrent inputs. The down projection follows if gate/up
+  gains carry over to the holdout.
+
+Calibrating on text the scorer uses is not possible here, but fitting the public drift still is: a gain
+earns only if it carries over to the private holdout ([holdout.md](holdout.md)).
 
 **Determinism is the whole game:** bytes are rebuilt and compared exactly. On GPU, pin
 deterministic kernels or round on CPU in float64.

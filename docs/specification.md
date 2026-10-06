@@ -13,7 +13,7 @@ Supersedes the original blueprint and v2: v2's rules plus six fixes ([§14](#14-
 - **Objectives:** RP-KL ↓ · decode tok/s ↑ · 4K prefill tok/s ↑ · peak GPU memory ↓.
 - **Out of scope:** pruning, distillation, fine-tuning/QAT, adapters, architecture/tokenizer/kernel changes, other models/GPUs/runtimes.
 
-Pins: [`configs/hpc01.yaml`](../configs/hpc01.yaml), [`configs/sources.lock.json`](../configs/sources.lock.json). Changing evaluation, frontier or gates needs a new **evaluator epoch** (versioned rule set; now `hpc01-e5`: speeds measured on the evaluator's machine, [frontier.md](frontier.md#speeds-from-the-evaluators-machine-hpc01-e5)).
+Pins: [`configs/hpc01.yaml`](../configs/hpc01.yaml), [`configs/sources.lock.json`](../configs/sources.lock.json). Changing evaluation, frontier or gates needs a new **evaluator epoch** (versioned rule set; now `hpc01-e6`: encoders may read the pinned calibration statistics, [quantizer_contract.md](quantizer_contract.md#calibration-statistics-epoch-hpc01-e6); speeds are measured on the evaluator's machine since `hpc01-e5`, [frontier.md](frontier.md#speeds-from-the-evaluators-machine-hpc01-e5)).
 
 ## 2. Runtime truth
 

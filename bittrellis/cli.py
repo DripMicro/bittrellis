@@ -23,17 +23,21 @@ DEFAULTS = {
     "base": ENV("BITTRELLIS_BASE", str(REPO_ROOT / "models/Qwen3.8-27B")),
     "shipped": ENV("BITTRELLIS_SHIPPED", str(REPO_ROOT / "models/Qwen3.8-27B-NVFP4-RTX5090")),
     "unsloth": ENV("BITTRELLIS_UNSLOTH", str(REPO_ROOT / "models/Qwen3.8-27B-NVFP4-unsloth")),
+    "calibration": ENV("BITTRELLIS_CALIBRATION", str(REPO_ROOT / "models/hpc01-calib-v1")),
     "sparkinfer": ENV("BITTRELLIS_SPARKINFER", str(REPO_ROOT / "third_party/sparkinfer")),
     "llamacpp": ENV("BITTRELLIS_LLAMACPP", str(REPO_ROOT / "third_party/llama.cpp")),
     "corpus": str(REPO_ROOT / "data/corpus/hpc01-public-v2.json"),
     "reference": ENV("BITTRELLIS_REFERENCE", str(REPO_ROOT / "data/reference/hpc01-public-v2-k256")),
 }
-SOURCE_ARGS = {"base": "base", "gittensor_nvfp4": "shipped", "unsloth_nvfp4": "unsloth"}
+SOURCE_ARGS = {"base": "base", "gittensor_nvfp4": "shipped", "unsloth_nvfp4": "unsloth", "calibration": "calibration"}
 GIB = 1024**3
 
 
 def _source_dirs(args) -> dict[str, Path]:
-    return {sid: Path(getattr(args, arg)) for sid, arg in SOURCE_ARGS.items() if getattr(args, arg, None)}
+    # The calibration statistics are optional on a development machine (`bittrellis calibration fetch`):
+    # without them, an encoder that needs them says so in available().
+    return {sid: Path(getattr(args, arg)) for sid, arg in SOURCE_ARGS.items() if getattr(args, arg, None)
+            and (sid != "calibration" or Path(getattr(args, arg)).is_dir())}
 
 
 def _units(args=None):
@@ -260,6 +264,33 @@ def cmd_corpus(args) -> int:
     return 0
 
 
+def cmd_calibration(args) -> int:
+    from . import calibration as C
+
+    text = Path(args.text)
+    if args.action == "text":
+        from .eval.corpus import load_corpus
+
+        tasks = sorted(Path(args.tasks).glob("*.jsonl"))
+        if len(tasks) != 5:
+            raise SystemExit(f"{args.tasks}: expected the 5 SparkInfer bench/quality task files, found {len(tasks)}")
+        body = C.build_text(Path(args.cache), load_corpus(Path(args.corpus)), tasks)
+        C.save_text(body, text)
+        print(f"{text}: {body['tokens']:,} tokens in {len(body['sequences'])} sequences, sha256 {body['sha256']}")
+    elif args.action == "verify":
+        body = C.load_text(text)
+        print(f"{text}: OK sha256 {body['sha256']}")
+    elif args.action == "capture":
+        from .lineage import require_verified
+
+        require_verified("base", args.base, log=print)
+        C.capture(Path(args.base), C.load_text(text), Path(args.out), args.kinds.split(","), gpu_gib=args.gpu_gib,
+                  batch=args.batch)
+    else:
+        C.fetch_release(Path(args.calibration))
+    return 0
+
+
 def cmd_reference(args) -> int:
     from .eval.corpus import load_corpus
     from .eval.reference import build_reference
@@ -454,10 +485,11 @@ def cmd_doctor(args) -> int:
     print(f"bittrellis {__version__} · track {track.id} · epoch {track['evaluation']['epoch']}")
     check("nvidia-smi", shutil.which("nvidia-smi") is not None)
     for sid, d in _source_dirs(args).items():
-        if not (d / "config.json").exists():
+        marker = "calibration.json" if sid == "calibration" else "config.json"
+        if not (d / marker).exists():
             check(f"source {sid}", False, f"{d} missing")
             continue
-        res = verify_source(sid, d, files=["config.json"])
+        res = verify_source(sid, d, files=[marker])
         check(f"source {sid}", res.ok, f"{d} (weights are hash-verified on first build/audit)")
     try:
         SparkInfer(args.sparkinfer, track).check_pinned()
@@ -476,7 +508,7 @@ def main(argv: list[str] | None = None) -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     def paths(p, *keys):
-        for k in keys:
+        for k in keys + (("calibration",) if "unsloth" in keys else ()):   # every command that reads the sources
             p.add_argument(f"--{k}", default=DEFAULTS[k])
 
     def sp(name: str, fn, help_: str, *keys):
@@ -522,6 +554,16 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--out", default=DEFAULTS["corpus"])
     p.add_argument("--cache", default=str(REPO_ROOT / "data/cache"))
     p.add_argument("--split", default="public", choices=["public", "public-validation"])
+    p = sp("calibration", cmd_calibration, "the pinned calibration text and statistics (fetch: download and verify them)",
+           "base", "corpus", "calibration")
+    p.add_argument("action", choices=["fetch", "verify", "text", "capture"])
+    p.add_argument("--text", default=str(REPO_ROOT / "data/calibration/hpc01-calib-v1.json"))
+    p.add_argument("--cache", default=str(REPO_ROOT / "data/cache"))
+    p.add_argument("--tasks", default=str(REPO_ROOT / "third_party/sparkinfer/bench/quality/data"))
+    p.add_argument("--out", help="capture: directory that receives one statistics directory per kind")
+    p.add_argument("--kinds", default="mlp", help="capture: comma-separated, from mlp,attn")
+    p.add_argument("--gpu-gib", type=int, default=10)
+    p.add_argument("--batch", type=int, default=8)
     p = sp("reference", cmd_reference, "BF16 reference distributions on the fixed partition (once per corpus)", "base", "corpus")
     p.add_argument("--out", default=DEFAULTS["reference"])
     p.add_argument("--gpu-gib", type=int, default=14)

@@ -261,6 +261,41 @@
      "sha256": "322e194ff79741c7baa497c240f677f54b201b0efab44ca8e50f122b39123482"
     }
    }
+  },
+  "calibration": {
+   "repo": "coderbench/bittrellis",
+   "revision": "calib-hpc01-v1",
+   "role": "calibration statistics: mean x x^T of every layer's MLP input over data/calibration/hpc01-calib-v1.json (BF16 model), published as the GitHub release calib-hpc01-v1",
+   "files": {
+    "calibration.json": {
+     "size": 445,
+     "sha256": "ef038b3edcede1f94ac6e55a1f19ded3157fb1a8f402df3bee39cd60b73b686e"
+    },
+    "model-00001-of-00005.safetensors": {
+     "size": 1572865840,
+     "sha256": "0c388f0ff1761a3abb89a393bf2c3ce06e44d7069118a7f6c594ca667b4a5fdd"
+    },
+    "model-00002-of-00005.safetensors": {
+     "size": 1572865848,
+     "sha256": "bb647ed0e11ad280b5054b922ccbac2d02c5a90122b3b20f91a0e7646239b5de"
+    },
+    "model-00003-of-00005.safetensors": {
+     "size": 1572865848,
+     "sha256": "89ab98c2d8605e7aae9e6f475d890e8b8602d0f4d517dc095f17b8be776ac077"
+    },
+    "model-00004-of-00005.safetensors": {
+     "size": 1572865848,
+     "sha256": "c8ca6e0a9f7db34bef4bd9184b10caa1f7138bf906136d3ef4d19510515b5d89"
+    },
+    "model-00005-of-00005.safetensors": {
+     "size": 419430912,
+     "sha256": "1fbbe7f3763ed7dce9d3521ba636b8715c860d4a67d24e242d37b5f5b82fb0ab"
+    },
+    "model.safetensors.index.json": {
+     "size": 5764,
+     "sha256": "a6bf814fdb1e98bfa506fcdfd76876ab7a31fcb5f615b4ae7e8e938c44a3b149"
+    }
+   }
   }
  }
 }

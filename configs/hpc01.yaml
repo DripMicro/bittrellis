@@ -14,6 +14,9 @@ model:
   shipped: {source: gittensor_nvfp4, repo: gittensor-model-hub/Qwen3.8-27B-NVFP4-RTX5090, revision: 5b7a687fc8211a5d631c8ca6a593dd37eb26ce33}
   # Attested quantizer sources: only maintainers add entries (with file hashes in the lock).
   attested_sources: [gittensor_nvfp4, unsloth_nvfp4]
+  # Activation statistics regenerable encoders may read (bittrellis/calibration.py), and the text they come from.
+  calibration: {source: calibration, text: data/calibration/hpc01-calib-v1.json,
+                text_sha256: 0e057104d7049ee9e699e5989489095a9266d520e5a6463258e00a93b25da228}
   aux_files: [chat_template.jinja, generation_config.json, merges.txt, preprocessor_config.json,
               processor_config.json, tokenizer.json, tokenizer_config.json, video_preprocessor_config.json,
               vocab.json, LICENSE]
@@ -35,7 +38,10 @@ runtime:
 hardware: {gpu: NVIDIA GeForce RTX 5090, count: 1, vram_mib: 32607}
 
 evaluation:
-  epoch: hpc01-e5
+  epoch: hpc01-e6
+  # hpc01-e6: regenerable encoders may read the pinned calibration statistics (source `calibration` in the lock:
+  # mean x xᵀ of every layer's MLP input over data/calibration/hpc01-calib-v1.json). Scoring is unchanged;
+  # every result carries over.
   # hpc01-e5: every ranked result is compared on speed and memory as measured on the evaluator's own machine;
   # references are re-measured there (evaluator/speeds.py). Quality, tasks and the holdout keep their results.
   corpus:
