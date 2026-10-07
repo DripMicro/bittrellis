@@ -13,8 +13,10 @@ same manifest always yields the same shard hashes.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import multiprocessing
+import os
 import shutil
 import time
 from collections import deque
@@ -22,6 +24,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
+import numpy as np
 import yaml
 
 from . import __version__, build_jobs
@@ -78,7 +81,8 @@ def plan_tensors(units: list[Unit], assignments: dict[str, Assignment], ctx: Q.Q
                     plan.append(PlannedTensor(lin.prefix + suf, dtype, tuple(shape), lambda d=data: d))
                 continue
             job = (u.id, lin.prefix) if qz.lineage == "regenerable" else None
-            memo = _Memo(lambda qz=qz, u=u, lin=lin, a=a: encode_unit(qz, ctx, u, lin, a), job)
+            enc = encode_cached if job else encode_unit
+            memo = _Memo(lambda qz=qz, u=u, lin=lin, a=a, enc=enc: enc(qz, ctx, u, lin, a), job)
             for suf, dtype, shape in _declared(qz, ctx, u, lin, a.format):
                 plan.append(PlannedTensor(lin.prefix + suf, dtype, shape,
                                           lambda m=memo, suf=suf: next(d for s, _, _, d in m() if s == suf), memo))
@@ -99,6 +103,55 @@ def encode_unit(qz: Q.Quantizer, ctx: Q.QuantContext, u: Unit, lin, a: Assignmen
     return qz.encode(ctx, u, lin, a.format)
 
 
+# Encoder outputs are reused across builds. An independent regenerable encoder's tensors depend only on the
+# Linear's BF16 weight, its assignment and the pinned calibration, so every recipe that assigns the same
+# encoder to the same unit stores the same bytes; recomputing them (e.g. GPTQ on every MLP, ~10 min) is wasted.
+# Only trusted builds use it: BITTRELLIS_ENCODE_CACHE is set by the evaluator, never passed into the sandbox,
+# and the audit regenerates without it. Entries are checked by sha256 when read.
+def _encode_cache_key(qz: Q.Quantizer, lin, a: Assignment) -> str:
+    from .lineage import load_lock
+
+    lock = load_lock()["sources"]
+    key = [qz.ref, lock["base"]["revision"], lin.prefix, a.key(), lock.get("calibration", {}).get("files")]
+    return hashlib.sha256(json.dumps(key, sort_keys=True).encode()).hexdigest()
+
+
+def encode_cached(qz: Q.Quantizer, ctx: Q.QuantContext, u: Unit, lin, a: Assignment):
+    root = os.environ.get("BITTRELLIS_ENCODE_CACHE")
+    if not root:
+        return encode_unit(qz, ctx, u, lin, a)
+    base = Path(root) / _encode_cache_key(qz, lin, a)
+    meta, blob = base.with_suffix(".json"), base.with_suffix(".bin")
+    try:
+        entries = json.loads(meta.read_text())
+        data = blob.read_bytes()
+        out = []
+        for suf, dtype, shape, off, n, digest in entries:
+            part = data[off:off + n]
+            if len(part) != n or hashlib.sha256(part).hexdigest() != digest:
+                raise ValueError("damaged entry")
+            out.append((suf, dtype, tuple(shape), part))
+        return out
+    except (OSError, ValueError):
+        pass
+    produced = encode_unit(qz, ctx, u, lin, a)
+    try:
+        entries, off = [], 0
+        Path(root).mkdir(parents=True, exist_ok=True)
+        tmp = blob.with_suffix(f".tmp{os.getpid()}")
+        with open(tmp, "wb") as fh:
+            for suf, dtype, shape, d in produced:
+                b = np.ascontiguousarray(d).tobytes() if isinstance(d, np.ndarray) else bytes(d)
+                fh.write(b)
+                entries.append([suf, dtype, list(shape), off, len(b), hashlib.sha256(b).hexdigest()])
+                off += len(b)
+        os.replace(tmp, blob)
+        meta.write_text(json.dumps(entries))
+    except OSError:
+        pass   # a full or read-only cache only costs the speed-up
+    return produced
+
+
 # Independent regenerable encodings run in forked workers: each depends only on its own Linear's BF16 weight,
 # so the bytes are the same as a serial build, only sooner. The writer still consumes them in plan order.
 _WORKER: dict = {}
@@ -109,7 +162,7 @@ def _encode_job(job: tuple[str, str]):
     u = units[job[0]]
     lin = next(x for x in u.linears if x.prefix == job[1])
     a = assignments[u.id]
-    return [(suf, dt, tuple(sh), data) for suf, dt, sh, data in encode_unit(Q.get(a.quantizer), ctx, u, lin, a)]
+    return [(suf, dt, tuple(sh), data) for suf, dt, sh, data in encode_cached(Q.get(a.quantizer), ctx, u, lin, a)]
 
 
 def _write_plan(plan: list[PlannedTensor], writer, ctx, units, assignments, jobs: int, log, t0: float) -> None:

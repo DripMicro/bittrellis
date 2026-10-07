@@ -537,6 +537,12 @@ class Evaluator:
             self.ledger = Ledger(Path(args.ledger), self.epoch)
             os.chmod(self.ledger.root, 0o700)
         self.py = [sys.executable, "-m", "bittrellis.cli"]
+        # Trusted builds reuse encoder outputs (bittrellis/build.py, encode_cached). Only the evaluator can read
+        # or write the cache, and the sandbox's environment never names it.
+        self.encode_cache = self.root / "encode-cache"
+        self.encode_cache.mkdir(exist_ok=True)
+        os.chmod(self.encode_cache, 0o700)
+        os.environ["BITTRELLIS_ENCODE_CACHE"] = str(self.encode_cache)
         self.env_args = ["--base", args.base, "--shipped", args.shipped, "--unsloth", args.unsloth, "--calibration", args.calibration]
         self.sources = {"base": Path(args.base), "gittensor_nvfp4": Path(args.shipped), "unsloth_nvfp4": Path(args.unsloth),
                         "calibration": Path(args.calibration)}
@@ -1036,7 +1042,7 @@ class Evaluator:
         except KeyError:
             return [f"sandbox account {self.args.sandbox_user} does not exist (run evaluator/setup_sandbox.sh)"]
         secrets_ = [self.secret_path, self.state_path, Path(self.args.token_file)] if self.args.token_file else [self.secret_path, self.state_path]
-        protected = [self.accepted, self.obs.dir] + ([Path(self.args.private)] if self.args.private else [])
+        protected = [self.accepted, self.obs.dir, self.encode_cache] + ([Path(self.args.private)] if self.args.private else [])
         return self.sandbox.problems(secrets_, protected, [Path(self.args.base), Path(self.args.shipped), Path(self.args.unsloth),
                                                            Path(self.args.calibration)])
 
