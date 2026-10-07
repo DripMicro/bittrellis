@@ -1,0 +1,26 @@
+schema: bittrellis/manifest@2
+track: HPC-01
+name: nvfp4-gptq-mlp-gdn-fp8-mid24-35-lmhead-q4k
+description: >
+  #74 (nvfp4_blockfit everywhere, FP8 on the recurrent layers 24-35, lm_head fitted once: RP-KL 0.0896, decode
+  92.6, prefill 16.2k) with every MLP block encoded by nvfp4_gptq. #102 measured the same swap on the FP8-qkv
+  attention-Q4_K map (#93): RP-KL 0.0743 to 0.0688 at identical decode, prefill and memory. Formats and kernels
+  here are #74's, so speed and memory should not move; drift should fall by a similar amount, to about 0.084,
+  while keeping #74's prefill, which the attention-Q4_K maps give up.
+authors: [Tet-9]
+default: NVFP4
+rules:
+  - match: "L*.mlp"
+    format: NVFP4
+    quantizer: nvfp4_gptq
+  - match: "L*.attn.*"
+    format: NVFP4
+    quantizer: nvfp4_blockfit
+  - match: "L*.gdn.*"
+    format: NVFP4
+    quantizer: nvfp4_blockfit
+  - match: "L*.gdn.*"
+    layers: "24-35"
+    format: FP8
+modules:
+  lm_head: Q4_K
