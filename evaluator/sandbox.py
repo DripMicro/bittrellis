@@ -29,6 +29,8 @@ import signal
 import subprocess
 from pathlib import Path
 
+from bittrellis import BLAS_VARS, blas_threads
+
 DEFAULT_USER = "bt-sandbox"
 SCRATCH = ("/tmp", "/var/tmp", "/dev/shm")
 NET_PROBE = ("import socket\ntry:\n    socket.create_connection(('1.1.1.1', 443), timeout=3)\n    print('reachable')\n"
@@ -39,7 +41,9 @@ ENV_ALLOW = ("LANG", "LC_ALL", "TZ")
 def command(user: str, cmd: list[str], home: str, path: str, extra_env: dict[str, str] | None = None) -> list[str]:
     env = {k: os.environ[k] for k in ENV_ALLOW if k in os.environ}
     env.update({"HOME": home, "PATH": path, "CUDA_VISIBLE_DEVICES": "", "PYTHONDONTWRITEBYTECODE": "1",
-                "BITTRELLIS_REPLAY_CACHE": f"{home}/.cache/bittrellis/replay", **(extra_env or {})})
+                "BITTRELLIS_REPLAY_CACHE": f"{home}/.cache/bittrellis/replay",
+                # every sandbox step is CPU-only; a build runs build_jobs() encoders at once (see blas_threads)
+                **{v: str(blas_threads()) for v in BLAS_VARS}, **(extra_env or {})})
     return ["runuser", "-u", user, "--", "env", "-i", *[f"{k}={v}" for k, v in sorted(env.items())], *cmd]
 
 

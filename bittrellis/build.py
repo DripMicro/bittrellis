@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import json
 import multiprocessing
-import os
 import shutil
 import time
 from collections import deque
@@ -25,7 +24,7 @@ from pathlib import Path
 
 import yaml
 
-from . import __version__
+from . import __version__, build_jobs
 from . import quantizers as Q
 from .calibration import open_calibration
 from .lineage import require_verified
@@ -111,12 +110,6 @@ def _encode_job(job: tuple[str, str]):
     lin = next(x for x in u.linears if x.prefix == job[1])
     a = assignments[u.id]
     return [(suf, dt, tuple(sh), data) for suf, dt, sh, data in encode_unit(Q.get(a.quantizer), ctx, u, lin, a)]
-
-
-def build_jobs() -> int:
-    """Worker processes for a build: BITTRELLIS_BUILD_JOBS, else half the CPUs (at most 16); 1 means serial."""
-    env = os.environ.get("BITTRELLIS_BUILD_JOBS")
-    return max(1, int(env)) if env else max(1, min(16, (os.cpu_count() or 2) // 2))
 
 
 def _write_plan(plan: list[PlannedTensor], writer, ctx, units, assignments, jobs: int, log, t0: float) -> None:

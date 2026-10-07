@@ -11,7 +11,10 @@ from pathlib import Path
 
 import yaml
 
-from . import __version__
+from . import (
+    __version__,
+    _cpu_threads,  # noqa: F401  (first: sets BLAS threads before NumPy loads)
+)
 from . import quantizers as Q
 from .manifest import Manifest, ManifestError, distance, summarize
 from .model.qwen38 import Qwen38Arch
