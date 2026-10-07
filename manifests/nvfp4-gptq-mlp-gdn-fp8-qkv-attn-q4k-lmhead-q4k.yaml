@@ -1,0 +1,29 @@
+schema: bittrellis/manifest@2
+track: HPC-01
+name: nvfp4-gptq-mlp-gdn-fp8-qkv-attn-q4k-lmhead-q4k
+description: >
+  #93 (FP8 recurrent qkv 1-63, attention on runtime Q4_K, nvfp4_blockfit elsewhere, lm_head fitted once:
+  RP-KL 0.0743, the lowest-drift result on the frontier) with every MLP block encoded by nvfp4_gptq: the gate
+  and up projections are rounded by GPTQ on the pinned hpc01-e6 calibration statistics, down keeps the
+  blockfit MLP fit. Formats, kernels and every other byte are those of #93, so decode, prefill and memory
+  should not move. On the pinned weights and statistics (layers 3, 30, 58, first 1,024 rows of gate and up)
+  the Hessian-weighted output error of the projections falls to 0.38-0.55 of blockfit's (0.27-0.40 of
+  round-to-nearest). The MLP carries most of the remaining NVFP4 error in this map, so drift should fall
+  further below #93; the calibration text is disjoint from everything scored, and the gain is in how the
+  rounding errors cancel on general inputs, not in fitting any one corpus.
+authors: [kaivexa]
+default: NVFP4
+rules:
+  - match: "L*.mlp"
+    format: NVFP4
+    quantizer: nvfp4_gptq
+  - match: "L*.attn.*"
+    format: Q4_K
+  - match: "L*.gdn.*"
+    format: NVFP4
+    quantizer: nvfp4_blockfit
+  - match: "L*.gdn.qkv"
+    layers: "1-63"
+    format: FP8
+modules:
+  lm_head: Q4_K

@@ -10,8 +10,9 @@ from __future__ import annotations
 from .base import Produced, QuantContext, Quantizer
 from .builtin import RTN, Baseline, Runtime, Unsloth
 from .nvfp4_blockfit import NVFP4BlockFit
+from .nvfp4_gptq import NVFP4GPTQ
 
-_BUILTIN: list[Quantizer] = [Runtime(), Baseline(), Unsloth(), RTN(), NVFP4BlockFit()]
+_BUILTIN: list[Quantizer] = [Runtime(), Baseline(), Unsloth(), RTN(), NVFP4BlockFit(), NVFP4GPTQ()]
 REGISTRY: dict[str, Quantizer] = {q.name: q for q in _BUILTIN}
 DEFAULT_FOR_FORMAT = {"NVFP4": "baseline", "FP8": "rtn", "Q4_K": "runtime"}
 
