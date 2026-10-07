@@ -1,0 +1,25 @@
+schema: bittrellis/manifest@2
+track: HPC-01
+name: nvfp4-gptq-mlp-gdn-qkv-attn-q4k-lmhead-q4k
+description: >
+  #86 (Q4_K on recurrent qkv 1-63 and attention, nvfp4_blockfit on recurrent z, out and layer 0, lm_head fitted
+  once: RP-KL 0.0858, decode 94.3, peak 21.67 GiB) with every MLP block on nvfp4_gptq instead of blockfit. On #93's
+  map the same change lowered drift by 0.0055 at identical decode, prefill and memory (#102); here the MLP is the
+  only NVFP4 weight GPTQ can reach, so the gain should carry over at #86's speed: the lowest drift at decode above
+  94 tok/s and under 22 GiB.
+authors: [kaivexa]
+default: NVFP4
+rules:
+  - match: "L*.mlp"
+    format: NVFP4
+    quantizer: nvfp4_gptq
+  - match: "L*.attn.*"
+    format: Q4_K
+  - match: "L*.gdn.*"
+    format: NVFP4
+    quantizer: nvfp4_blockfit
+  - match: "L*.gdn.qkv"
+    layers: "1-63"
+    format: Q4_K
+modules:
+  lm_head: Q4_K
