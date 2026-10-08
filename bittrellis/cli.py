@@ -99,8 +99,46 @@ def cmd_inventory(args) -> int:
     return 0
 
 
+def _hpc02(track):
+    """The HPC-02 module with every encoder in this checkout registered (merged or, in a PR's sandbox, contributed)."""
+    from . import hpc02
+
+    hpc02.load_contributed()
+    return hpc02
+
+
+def cmd_manifest_hpc02(args, track) -> int:
+    h = _hpc02(track)
+    src = _hpc02_sources(track)
+    us = h.units(h.read_template(src["template_dir"]))
+    status = 0
+    for p in args.manifests:
+        try:
+            d = h.load_manifest(Path(p))
+            a = h.expand(d, us, h.ud_formats(src["ud"]))
+        except (h.ManifestError, yaml.YAMLError, KeyError) as e:
+            print(f"✗ {p}: {e}")
+            status = 1
+            continue
+        keys = {uid: x.key() for uid, x in a.items()}
+        cid = h.candidate_id_keys(keys)
+        counts: dict[str, int] = {}
+        for k in keys.values():
+            counts[k] = counts.get(k, 0) + 1
+        print(f"✓ {p}: {d['name']}  id={cid}")
+        for k, n in sorted(counts.items()):
+            print(f"    {k:28s} ×{n}")
+        print(f"    searchable bytes ≈ {h.predicted_bytes(us, a) / GIB:.2f} GiB")
+        if args.ids_out:
+            Path(args.ids_out).write_text(json.dumps({"name": d["name"], "id": cid, "keys": keys,
+                                                      "searchable_bytes": h.predicted_bytes(us, a)}, sort_keys=True) + "\n")
+    return status
+
+
 def cmd_manifest(args) -> int:
     track = load_track(args.track)
+    if track.id == "HPC-02":
+        return cmd_manifest_hpc02(args, track)
     units = _units(args)
     by_id = {u.id: u for u in units}
     seen: dict[str, tuple[str, dict]] = {}
@@ -188,8 +226,7 @@ def cmd_build(args) -> int:
 
     track = load_track(args.track)
     if track.id == "HPC-02":
-        from . import hpc02
-
+        hpc02 = _hpc02(track)
         d = hpc02.load_manifest(Path(args.manifest))
         out = Path(args.out) if args.out else REPO_ROOT / "models/candidates" / f"{d['name']}.gguf"
         hpc02.build(Path(args.manifest), out=out, **_hpc02_sources(track))
@@ -221,6 +258,16 @@ def _register_foreign(ckpt: Path) -> list[str]:
 
 
 def cmd_regenerate(args) -> int:
+    if load_track(args.track).id == "HPC-02":
+        h = _hpc02(load_track(args.track))
+        n = h.regenerate(Path(args.manifest), targets=[u for u in args.units.split(",") if u], out_dir=Path(args.out),
+                         **_hpc02_sources(load_track(args.track)))
+        print(f"regenerated {n} units")
+        return 0
+    return _cmd_regenerate_hpc01(args)
+
+
+def _cmd_regenerate_hpc01(args) -> int:
     """Contributed-code side of an isolated audit: regenerate units from the sources only, never the checkpoint."""
     from . import quantizers as Q
     from .build import open_context
@@ -252,10 +299,14 @@ def cmd_audit(args) -> int:
     from .validate import audit
 
     if load_track(args.track).id == "HPC-02":
-        from . import hpc02
-
+        hpc02 = _hpc02(load_track(args.track))
         ckpt = Path(args.checkpoint)
+        if args.regenerated:   # contributed encoders are compared by their sandboxed regenerations, never run here
+            summary = json.loads(Path(str(ckpt) + ".build.json").read_text())["summary"]
+            print("foreign encoders (compared, not executed):",
+                  ", ".join(e.ref for e in hpc02.register_foreign(sorted({k.split("@", 1)[1].split("+")[0] for k in summary}))) or "none")
         res = hpc02.audit(ckpt, Path(args.manifest or str(ckpt) + ".manifest.yaml"), secret=_secret(args),
+                          regenerated_dir=Path(args.regenerated) if args.regenerated else None,
                           **_hpc02_sources(load_track(args.track)))
         if args.out:
             Path(args.out).write_text(json.dumps({**res, "fast": False, "checkpoint_files": _gguf_files(ckpt)}, indent=2) + "\n")
@@ -344,7 +395,7 @@ def _gguf_files(ckpt: Path) -> dict:
 
 
 def _identity_hpc02(args, track, ckpt: Path) -> dict | None:
-    from . import hpc02
+    hpc02 = _hpc02(track)
 
     manifest = Path(str(ckpt) + ".manifest.yaml")
     d = hpc02.load_manifest(manifest)
@@ -520,6 +571,15 @@ def cmd_report(args) -> int:
 
 def cmd_fingerprint(args) -> int:
     from . import fingerprint as F
+
+    if load_track(args.track).id == "HPC-02":
+        h = _hpc02(load_track(args.track))
+        names = [n for n in args.quantizers.split(",") if n] if args.quantizers else None
+        F.save_probe(h.probe(args.seed, names), Path(args.out))
+        if args.repeat_out:
+            F.save_probe(h.probe(args.seed, names), Path(args.repeat_out))
+        print(f"probe seed {args.seed}: HPC-02 encoders {sorted(h.ENCODERS)}")
+        return 0
 
     names = [n for n in args.quantizers.split(",") if n] if args.quantizers else None
     first = F.probe(names, args.seed)

@@ -123,6 +123,16 @@ ENCODERS: dict[str, Encoder] = {
 }
 
 
+def register_foreign(refs: list[str]) -> list[Encoder]:
+    """Stand-ins for contributed encoders this (trusted) process must not execute: name@vN, formats unknown."""
+    added = []
+    for ref in refs:
+        name, _, v = ref.partition("@v")
+        if name not in ENCODERS:
+            added.append(register(Encoder(name, int(v), "regenerable", None)))
+    return added
+
+
 def register(enc: Encoder) -> Encoder:
     if enc.name in ENCODERS and ENCODERS[enc.name] is not enc:
         raise ValueError(f"encoder {enc.name!r} already registered")
@@ -209,8 +219,46 @@ def expand(d: dict, us: list[Unit], ud_formats: dict[str, str] | None = None) ->
 
 
 def candidate_id(assignments: dict[str, Assignment]) -> str:
-    payload = json.dumps([TRACK, sorted((u, a.key()) for u, a in assignments.items())])
+    return candidate_id_keys({u: a.key() for u, a in assignments.items()})
+
+
+def candidate_id_keys(keys: dict[str, str]) -> str:
+    payload = json.dumps([TRACK, sorted(keys.items())])
     return hashlib.sha256(payload.encode()).hexdigest()[:16]
+
+
+def predicted_bytes(us: list[Unit], a: dict[str, Assignment]) -> int:
+    """Stored bytes of the searchable tensors (the rest is the same for every candidate)."""
+    return sum(u.rows * kquant.row_bytes(a[u.id].format, u.cols) for u in us)
+
+
+def load_contributed() -> list[Encoder]:
+    """Import every module in bittrellis/hpc02_encoders/; each registers its encoders on import."""
+    import importlib
+    import pkgutil
+
+    from . import hpc02_encoders
+
+    before = set(ENCODERS)
+    for m in pkgutil.iter_modules(hpc02_encoders.__path__):
+        importlib.import_module(f"{hpc02_encoders.__name__}.{m.name}")
+    return [ENCODERS[n] for n in sorted(set(ENCODERS) - before)]
+
+
+def probe(seed: int, names: list[str] | None = None) -> dict[str, bytes]:
+    """{"enc@vN|FORMAT|probe": bytes}: every regenerable encoder on seeded synthetic rows, per format. Encoders
+    are compared by these bytes (duplicate and determinism screens), never by their source text."""
+    rng = np.random.default_rng(seed)
+    rows = (rng.standard_normal((64, 1024)) * rng.uniform(0.005, 0.05, (64, 1)) * rng.uniform(0.3, 3, 1024)).astype(np.float32)
+    rows[rng.integers(0, 64, 8), rng.integers(0, 1024, 8)] *= 20.0          # a few outliers, as real weights have
+    unit = Unit("probe", "probe.weight", 0, "exps.gate", 1024, 64, 64 * 1024)
+    out = {}
+    for enc in ENCODERS.values():
+        if enc.lineage != "regenerable" or (names and enc.name not in names):
+            continue
+        for fmt in enc.formats:
+            out[f"{enc.ref}|{fmt}|probe"] = enc.fn(EncodeContext(rows.copy(), unit, {}, None), fmt)
+    return out
 
 
 # ------------------------------------------------------------------ sources
@@ -283,13 +331,42 @@ def build(manifest: Path, template_dir: Path, out: Path, ud: Path | None = None,
     return record
 
 
+def samples(us: list[Unit], a: dict[str, Assignment], enc_name: str, seed: str) -> list[Unit]:
+    """Units of an encoder the audit rebuilds: first, last and secretly chosen ones (seed = id + secret)."""
+    mine = [u for u in us if a[u.id].encoder == enc_name]
+    if not mine:
+        return []
+    ranked = sorted(mine, key=lambda u: hashlib.sha256(f"{seed}:{u.id}".encode()).hexdigest())
+    pick = {mine[0].id, mine[-1].id} | {u.id for u in ranked[:SAMPLES_PER_ENCODER - 2]}
+    return [u for u in mine if u.id in pick]
+
+
+def regenerate(manifest: Path, template_dir: Path, targets: list[str], out_dir: Path, ud: Path | None = None,
+               calibration_dir: Path | None = None) -> int:
+    """Contributed-code side of an isolated audit: encode `targets` from the template only, never the candidate."""
+    from .gguf_build import _bf16_rows
+    from .safetensors_io import SafeTensorsDir
+
+    template = read_template(template_dir)
+    us = units(template)
+    a = expand(load_manifest(manifest), us, ud_formats(ud) if ud else None)
+    T = {t.name: t for t in template}
+    calib = SafeTensorsDir(calibration_dir) if calibration_dir else None
+    out_dir.mkdir(parents=True, exist_ok=True)
+    by_id = {u.id: u for u in us}
+    for uid in targets:
+        u, x = by_id[uid], a[uid]
+        (out_dir / f"{uid}.bin").write_bytes(ENCODERS[x.encoder].fn(EncodeContext(_bf16_rows(T[u.tensor]), u, dict(x.params), calib), x.format))
+    return len(targets)
+
+
 # ------------------------------------------------------------------ audit
 
 SAMPLES_PER_ENCODER = 6
 
 
 def audit(gguf_path: Path, manifest: Path, template_dir: Path, ud: Path | None = None, calibration_dir: Path | None = None,
-          secret: str = "", log=print) -> dict:
+          secret: str = "", regenerated_dir: Path | None = None, log=print) -> dict:
     """The HPC-01 rules for a GGUF candidate: same metadata and tensors as the template, frozen tensors byte for
     byte, each searchable tensor in its manifest format, attested bytes identical to their source, sampled
     regenerable tensors rebuilt byte for byte (samples from the candidate id and the evaluator's secret)."""
@@ -349,14 +426,22 @@ def audit(gguf_path: Path, manifest: Path, template_dir: Path, ud: Path | None =
             errors += [f"{uid}: bytes differ from unsloth_ud" for uid in bad]
             lineage[enc.ref] = {"lineage": "attested", "units": len(mine), "checked": len(mine)}
             continue
-        ranked = sorted(mine, key=lambda u: hashlib.sha256(f"{cid}:{secret}:{u.id}".encode()).hexdigest())
-        sample = {mine[0].id, mine[-1].id} | {u.id for u in ranked[:SAMPLES_PER_ENCODER - 2]}
-        for u in [u for u in mine if u.id in sample]:
-            x = a[u.id]
-            want = enc.fn(EncodeContext(_bf16_rows(T[u.tensor]), u, dict(x.params), calib), x.format)
+        sample = samples(us, a, enc_name, f"{cid}:{secret}")
+        isolated = enc.fn is None          # contributed code: its sandboxed regeneration is compared, never run here
+        for u in sample:
+            if isolated:
+                f = Path(regenerated_dir or "/nonexistent") / f"{u.id}.bin"
+                want = f.read_bytes() if f.exists() else None
+                if want is None:
+                    errors.append(f"{u.id}: no regeneration by {enc.ref} was provided")
+                    continue
+            else:
+                x = a[u.id]
+                want = enc.fn(EncodeContext(_bf16_rows(T[u.tensor]), u, dict(x.params), calib), x.format)
             if u.tensor in C and np.asarray(C[u.tensor].data).tobytes() != want:
                 errors.append(f"{u.id}: does not match a regeneration by {enc.ref}")
-        lineage[enc.ref] = {"lineage": "regenerable", "units": len(mine), "sampled": sorted(sample)}
+        lineage[enc.ref] = {"lineage": "regenerable", "units": len(mine), "sampled": sorted(u.id for u in sample),
+                            **({"replay_mode": "isolated"} if isolated else {})}
     res = {"ok": not errors, "errors": errors[:200], "n_errors": len(errors), "candidate_id": cid, "lineage": lineage}
     log(f"[hpc02] audit {'PASS' if res['ok'] else 'FAIL'} ({cid}): {len(errors)} errors")
     return res
