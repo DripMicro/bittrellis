@@ -98,7 +98,7 @@ def test_build_then_audit_and_tampering_is_caught(tiny, tmp_path):
                                   {"match": "L0.exps.down", "format": "Q6_K"}], modules={"embed": "Q8_0"})
     out = tmp_path / "c.gguf"
     rec = hpc02.build(m, tdir, out, ud=ud, jobs=2, **QUIET)
-    res = hpc02.audit(out, m, tdir, ud=ud, secret="s", **QUIET)
+    res = hpc02.audit(out, m, tdir, ud=ud, secret="s", verify=False, **QUIET)
     assert res["ok"], res["errors"]
     assert rec["candidate_id"] == res["candidate_id"]
     assert res["lineage"]["unsloth_ud@v1"]["checked"] == 2
@@ -108,7 +108,7 @@ def test_build_then_audit_and_tampering_is_caught(tiny, tmp_path):
     assert list(map(int, t["blk.0.ffn_gate_inp_shexp.weight"].shape)) == [256]
     # a different manifest for the same file fails on formats
     other = manifest(tmp_path, rules=[{"match": "L*.exps.*", "format": "Q6_K"}])
-    assert not hpc02.audit(out, other, tdir, ud=ud, **QUIET)["ok"]
+    assert not hpc02.audit(out, other, tdir, ud=ud, verify=False, **QUIET)["ok"]
     # one flipped byte in a regenerable tensor that is always sampled (the first unit) fails the audit
     x = t["token_embd.weight"]
     with open(out, "r+b") as fh:
@@ -116,5 +116,5 @@ def test_build_then_audit_and_tampering_is_caught(tiny, tmp_path):
         b = fh.read(1)
         fh.seek(int(x.data_offset) + 7)
         fh.write(bytes([b[0] ^ 1]))
-    bad = hpc02.audit(out, m, tdir, ud=ud, secret="s", **QUIET)
+    bad = hpc02.audit(out, m, tdir, ud=ud, secret="s", verify=False, **QUIET)
     assert not bad["ok"] and any("embed" in e for e in bad["errors"])

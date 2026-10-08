@@ -12,9 +12,9 @@ model:
   # The BF16 weights the reference runs, and llama.cpp's BF16 GGUF conversion of the same weights, whose
   # metadata, tensor layout and every non-searchable tensor each candidate keeps byte for byte.
   base: {source: qwen36_bf16, repo: Qwen/Qwen3.6-35B-A3B, revision: 995ad96eacd98c81ed38be0c5b274b04031597b0, dtype: bfloat16}
-  template: {source: qwen36_bf16_gguf, repo: unsloth/Qwen3.6-35B-A3B-GGUF, revision: a483e9e6cbd595906af30beda3187c2663a1118c, files: BF16/*.gguf}
+  template: {source: qwen36_gguf, repo: unsloth/Qwen3.6-35B-A3B-GGUF, revision: a483e9e6cbd595906af30beda3187c2663a1118c, files: BF16/*.gguf}
   # The popular free GGUF: the external point every recipe is compared with.
-  shipped: {source: qwen36_ud_q4km, repo: unsloth/Qwen3.6-35B-A3B-GGUF, revision: a483e9e6cbd595906af30beda3187c2663a1118c, file: Qwen3.6-35B-A3B-UD-Q4_K_M.gguf}
+  shipped: {source: qwen36_gguf, repo: unsloth/Qwen3.6-35B-A3B-GGUF, revision: a483e9e6cbd595906af30beda3187c2663a1118c, file: Qwen3.6-35B-A3B-UD-Q4_K_M.gguf}
   formats: [Q4_K, Q5_K, Q6_K, Q8_0]
   # Local paths (repository-relative) of the pinned sources and of this track's runtime checkout.
   paths: {base: models/Qwen3.6-35B-A3B, template: models/Qwen3.6-35B-A3B-GGUF/BF16,

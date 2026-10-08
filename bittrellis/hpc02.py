@@ -360,13 +360,36 @@ def regenerate(manifest: Path, template_dir: Path, targets: list[str], out_dir: 
     return len(targets)
 
 
+# ------------------------------------------------------------------ sources
+
+SOURCES = {"template": "qwen36_gguf", "calibration": "hpc02_calibration"}
+
+
+def verify_sources(template_dir: Path, ud: Path | None, calibration_dir: Path | None, log=print) -> list[str]:
+    """Every pinned file this candidate's bytes come from, hashed against configs/sources.lock.json (cached by
+    size and mtime next to the files, as HPC-01's sources are)."""
+    from .lineage import load_lock, verify_source
+
+    lock = load_lock()["sources"]
+    errors: list[str] = []
+    gguf_dir = Path(template_dir).parent              # .../Qwen3.6-35B-A3B-GGUF holds BF16/ and the UD file
+    checks = [(SOURCES["template"], gguf_dir, [n for n in lock[SOURCES["template"]]["files"]
+                                               if n.startswith("BF16/") or (ud and n == Path(ud).name)])]
+    if calibration_dir:
+        checks.append((SOURCES["calibration"], Path(calibration_dir), None))
+    for sid, d, files in checks:
+        res = verify_source(sid, d, files, log=log)
+        errors += [f"source {sid}: {e}" for e in res.errors]
+    return errors
+
+
 # ------------------------------------------------------------------ audit
 
 SAMPLES_PER_ENCODER = 6
 
 
 def audit(gguf_path: Path, manifest: Path, template_dir: Path, ud: Path | None = None, calibration_dir: Path | None = None,
-          secret: str = "", regenerated_dir: Path | None = None, log=print) -> dict:
+          secret: str = "", regenerated_dir: Path | None = None, verify: bool = True, log=print) -> dict:
     """The HPC-01 rules for a GGUF candidate: same metadata and tensors as the template, frozen tensors byte for
     byte, each searchable tensor in its manifest format, attested bytes identical to their source, sampled
     regenerable tensors rebuilt byte for byte (samples from the candidate id and the evaluator's secret)."""
@@ -375,7 +398,7 @@ def audit(gguf_path: Path, manifest: Path, template_dir: Path, ud: Path | None =
     from .gguf_build import SKIP_KEYS, _bf16_rows
     from .safetensors_io import SafeTensorsDir
 
-    errors: list[str] = []
+    errors: list[str] = verify_sources(template_dir, ud, calibration_dir, log=log) if verify else []
     d = load_manifest(manifest)
     tpaths = template_paths(template_dir)
     treaders = [GGUFReader(p) for p in tpaths]
