@@ -4,9 +4,9 @@
 #   curl -fsSL https://raw.githubusercontent.com/coderbench/bittrellis/main/scripts/provision_box.sh | bash
 #   # or, from a checkout:  scripts/provision_box.sh
 #
-# Installs CUDA 12.8, CMake, Rust, the repo and a virtualenv, downloads the pinned models (~90 GiB),
-# builds SparkInfer and the scorer, and computes the public BF16 reference. Roughly 1.5-2 hours,
-# almost all of it download time. Safe to re-run: every step is skipped when it is already done.
+# Installs CUDA 12.8 (HPC-01) and 13.0 (HPC-02), CMake, Rust, the repo and a virtualenv, downloads the pinned
+# models of both tracks (~260 GB), builds each track's SparkInfer and scorer, and computes each public BF16
+# reference. Roughly 2-3 hours, almost all of it download time. Safe to re-run: done steps are skipped.
 #
 #   BT_ROOT     where everything lives            (default /workspace/bittrellis)
 #   BT_BRANCH   branch to check out               (default main)
@@ -35,6 +35,14 @@ fi
 export CUDA_HOME PATH="$CUDA_HOME/bin:$PATH"
 "$CUDA_HOME/bin/nvcc" --version | tail -1
 
+step "CUDA toolkit 13.0 (HPC-02's SparkInfer pin needs it)"
+if [ ! -x /usr/local/cuda-13.0/bin/nvcc ]; then
+  [ -f /tmp/cuda-keyring.deb ] || { curl -fsSLo /tmp/cuda-keyring.deb https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb && dpkg -i /tmp/cuda-keyring.deb && apt-get update -qq; }
+  apt-get install -y -qq cuda-toolkit-13-0
+fi
+[ -x /usr/local/cuda-13.0/bin/nvcc ] || { echo "CUDA 13.0 is pinned for HPC-02 but could not be installed" >&2; exit 1; }
+/usr/local/cuda-13.0/bin/nvcc --version | tail -1
+
 step "rust (kept off encrypted mounts: cargo's archiver fails on some of them)"
 export RUSTUP_HOME="$BT_ROOT/rust/rustup" CARGO_HOME="$BT_ROOT/rust/cargo"
 mkdir -p "$RUSTUP_HOME" "$CARGO_HOME"
@@ -61,11 +69,18 @@ python -c "import torch; assert torch.cuda.is_available(); print('torch', torch.
 step "pinned models (~97 GiB: base 52, shipped 17, unsloth 22, calibration 6.7 GB)"
 scripts/setup_models.sh base shipped unsloth dspark calibration
 
+step "HPC-02 models (~160 GB: Qwen3.6-35B-A3B BF16 67, GGUF template + UD-Q4_K_M 91, statistics 1.4)"
+scripts/setup_models.sh qwen36 qwen36_gguf calibration02
+
 step "SparkInfer at the pinned commit, plus the scorer"
 scripts/setup_sparkinfer.sh
 
+step "HPC-02's SparkInfer at its own pinned commit (CUDA 13.0), plus the scorer"
+scripts/setup_sparkinfer.sh HPC-02
+
 step "public BF16 reference (once per corpus)"
 [ -f data/reference/hpc01-public-v2-k256/reference.json ] || bittrellis reference --out data/reference/hpc01-public-v2-k256
+[ -f data/reference/hpc02-public-v2-k256/reference.json ] || bittrellis --track HPC-02 reference
 
 step "doctor"
 bittrellis doctor

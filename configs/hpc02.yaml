@@ -1,5 +1,5 @@
 # HPC-02 — Qwen3.6-35B-A3B (mixture of experts) GGUF formats on one RTX 5090, pinned SparkInfer.
-# DRAFT (2026-10-08): not live; scoring and rewards follow HPC-01 unless noted.
+# Scoring and rewards follow HPC-01 except the frontier box (speed ranges scaled to this model).
 # Every number a result depends on is pinned here or in sources.lock.json.
 # Changing anything under `evaluation`, `frontier` or `gates` requires a new evaluator epoch.
 track: HPC-02
@@ -94,11 +94,11 @@ frontier:
     peak_gpu_gib: 0.10         # GiB
   box:
     rp_kl: [0.0, 0.30]
-    # DRAFT, to be approved with the track: fitted to this model (seeds decode 382-466 tok/s, prefill 37-40K tok/s,
-    # peak 23-29 GiB on the pinned RTX 5090); HPC-01's ranges (decode 60-120) would put every recipe off the scale.
-    decode_tps: [250.0, 600.0]
-    prefill_tps: [10000.0, 60000.0]
-    peak_gpu_gib: [14.0, 32.0]
+    # HPC-01's ranges scaled by V0's own values (decode, prefill, peak), so V0 sits where HPC-01's V0 sits and the
+    # same relative improvement earns about the same FG-2 and tier on both tracks (drift -5% XS, -10% S).
+    decode_tps: [251.2, 502.4]
+    prefill_tps: [5315.1, 53150.6]
+    peak_gpu_gib: [16.2, 37.1]
   frontier_gain: FG-2
   # hpc01-e4: RP-KL is section-balanced -- V0's RP-KL × the mean, over sections (each short category, and
   # the long streams together), of the candidate's drift relative to V0's there. In hpc01-e3 the plain mean

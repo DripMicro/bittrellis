@@ -200,6 +200,16 @@ def cmd_describe(args) -> int:
 def cmd_verify_sources(args) -> int:
     from .lineage import verify_source
 
+    track = load_track(args.track)
+    if track.id == "HPC-02":
+        h = _hpc02(track)
+        errors = h.verify_sources(**_hpc02_sources(track)) + [f"source qwen36_bf16: {e}" for e in
+                                                              verify_source("qwen36_bf16", _p02(track, "base"), log=print).errors]
+        for e in errors:
+            print(f"✗ {e}")
+        print("✓ HPC-02 sources verified" if not errors else f"✗ {len(errors)} problems")
+        return 0 if not errors else 1
+
     dirs = _source_dirs(args)
     ok = True
     for sid in args.source or sorted(dirs):
@@ -375,6 +385,8 @@ def cmd_calibration(args) -> int:
         require_verified("base", args.base, log=print)
         C.capture(Path(args.base), C.load_text(text), Path(args.out), args.kinds.split(","), gpu_gib=args.gpu_gib,
                   batch=args.batch)
+    elif load_track(args.track).id == "HPC-02":
+        C.fetch_release(_p02(load_track(args.track), "calibration"), source="hpc02_calibration")
     else:
         C.fetch_release(Path(args.calibration))
     return 0
@@ -386,6 +398,17 @@ def cmd_reference(args) -> int:
     from .lineage import require_verified
 
     track = load_track(args.track)
+    if track.id == "HPC-02":   # 67 GB of BF16 weights on a 62 GB host: GPU, CPU and disk offload
+        from .lineage import LineageError, verify_source
+
+        base = _p02(track, "base")
+        if not verify_source("qwen36_bf16", base, log=print).ok:
+            raise LineageError(f"{base} does not match the lock")
+        out = _p02(track, "reference") if args.out == DEFAULTS["reference"] else Path(args.out)
+        build_reference(base, load_corpus(Path(args.corpus)), out, topk=track["evaluation"]["score"]["reference_topk"],
+                        gpu_gib=22, cpu_gib=34, offload=REPO_ROOT / "data/offload")
+        shutil.rmtree(REPO_ROOT / "data/offload", ignore_errors=True)
+        return 0
     require_verified("base", args.base, log=print)
     corpus = load_corpus(Path(args.corpus))
     build_reference(Path(args.base), corpus, Path(args.out), topk=track["evaluation"]["score"]["reference_topk"],

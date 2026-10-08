@@ -103,7 +103,8 @@ input channel is `exps_input.sumsq[e] / count[e]` (llama.cpp's imatrix keeps the
 
 As HPC-01: section-balanced RP-KL against the BF16 model, decode and prefill at 4K and peak memory measured on
 the evaluator's machine, the 784-question task guard against V0, the private holdout transfer test, then FG-2
-over this track's own frontier. Speed ranges, tiers and the seeds are this track's own
+over this track's own frontier, with the same tiers. The frontier box is HPC-01's scaled by V0's own decode,
+prefill and peak memory, so the same relative improvement earns about the same gain on both tracks
 ([`configs/hpc02.yaml`](../configs/hpc02.yaml)).
 
 | seed | recipe | RP-KL | decode tok/s | prefill 4K tok/s | peak GiB | tasks |

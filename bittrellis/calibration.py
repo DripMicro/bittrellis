@@ -331,11 +331,12 @@ def open_calibration(path: Path, verify: bool, log=None):
 # ------------------------------------------------------------------ download
 
 
-def fetch_release(dest: Path, log=print) -> None:
-    """Download the pinned calibration files (configs/sources.lock.json, source `calibration`) and verify them."""
+def fetch_release(dest: Path, log=print, source: str = "calibration") -> None:
+    """Download a pinned set of calibration files (configs/sources.lock.json: `calibration` for HPC-01,
+    `hpc02_calibration` for HPC-02), released under the entry's revision tag, and verify them."""
     from .lineage import LineageError, load_lock, verify_source
 
-    entry = load_lock()["sources"]["calibration"]
+    entry = load_lock()["sources"][source]
     dest = Path(dest)
     dest.mkdir(parents=True, exist_ok=True)
     for name, pin in sorted(entry["files"].items()):
@@ -348,7 +349,7 @@ def fetch_release(dest: Path, log=print) -> None:
             while chunk := r.read(64 << 20):
                 fh.write(chunk)
         tmp.replace(p)
-    res = verify_source("calibration", dest, log=log)
+    res = verify_source(source, dest, log=log)
     if not res.ok:
         raise LineageError(f"calibration at {dest} does not match the lock: {res.errors[:5]}")
     log(f"[calibration] {dest}: verified")

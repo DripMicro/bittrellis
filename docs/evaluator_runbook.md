@@ -95,6 +95,24 @@ tail -f /workspace/evaluator.log
 On a new machine the first pass re-measures the speed of every ranked reference before any PR (`[speeds]` in the log;
 about 0.7 GPU-minutes per reference plus its build). One pass only, to try it: add `--once` to `run_bot.sh`.
 
+### The second track (HPC-02)
+
+One bot per track, on the same GPU. Each takes a shared lock for its GPU work, so they never measure at the same
+time. HPC-02 has its own sandbox root and its own private BF16 reference over the same holdout text:
+
+```bash
+[ -d /secure/holdout-2026w38/reference-hpc02 ] || bittrellis --track HPC-02 reference \
+    --corpus /secure/holdout-2026w38/corpus.json --out /secure/holdout-2026w38/reference-hpc02
+chmod -R go-rwx /secure
+BT_EVAL_ROOT=/workspace/bt-eval-hpc02 BT_PRIVATE=/secure/holdout-2026w38 evaluator/setup_sandbox.sh
+
+# in run-evaluator.sh add:  export BT_TRACK=HPC-01 BT_GPU_LOCK=/workspace/bt-gpu.lock
+sed -e 's|BT_EVAL_ROOT=/workspace/bt-eval$|BT_EVAL_ROOT=/workspace/bt-eval-hpc02|' -e 's|BT_TRACK=HPC-01|BT_TRACK=HPC-02|' \
+    /workspace/run-evaluator.sh > /workspace/run-evaluator-hpc02.sh
+chmod +x /workspace/run-evaluator-hpc02.sh
+tmux new -d -s bot2 '/workspace/run-evaluator-hpc02.sh > /workspace/evaluator-hpc02.log 2>&1'
+```
+
 Under systemd instead of tmux:
 
 ```ini

@@ -6,6 +6,7 @@
 #   gguf      unsloth UD-Q4_K_M GGUF (15 GiB)          external R2 (validators only)
 #   dspark    DSpark drafter (1.3 GiB)                 faster task suite (answers unchanged)
 #   calibration  pinned calibration statistics (6.7 GB, GitHub release)   calibrated encoders
+#   qwen36, qwen36_gguf, calibration02   HPC-02: BF16 weights, GGUF template + V0, statistics (~160 GB)
 # Usage: scripts/setup_models.sh [base] [shipped] [unsloth] [gguf] [dspark] [calibration]
 #        (default: base shipped unsloth dspark calibration)
 set -euo pipefail
@@ -21,7 +22,14 @@ for w in "${want[@]}"; do
     dspark)  hf download "$PIN_DSPARK_REPO" --revision "$PIN_DSPARK_REVISION" --local-dir "$MODELS_DIR/Qwen3.8-27B-DSpark-NVFP4" ;;
     gguf)    hf download "$PIN_UNSLOTH_GGUF_REPO" "$PIN_R2_FILE" --revision "$PIN_UNSLOTH_GGUF_REVISION" --local-dir "$MODELS_DIR/Qwen3.8-27B-GGUF" ;;
     calibration) bittrellis calibration fetch --calibration "$MODELS_DIR/hpc01-calib-v1" ;;
+    # HPC-02 (Qwen3.6-35B-A3B): BF16 weights (references, calibration; 67 GB), llama.cpp's BF16 GGUF template and
+    # unsloth's UD-Q4_K_M (V0) (91 GB), the pinned calibration statistics (1.4 GB)
+    qwen36)  hf download "$PIN_QWEN36_BF16_REPO" --revision "$PIN_QWEN36_BF16_REVISION" --local-dir "$MODELS_DIR/Qwen3.6-35B-A3B" --max-workers 16 ;;
+    qwen36_gguf) hf download "$PIN_QWEN36_GGUF_REPO" --revision "$PIN_QWEN36_GGUF_REVISION" --include "BF16/*" "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf" \
+                   --local-dir "$MODELS_DIR/Qwen3.6-35B-A3B-GGUF" --max-workers 8 ;;
+    calibration02) bittrellis --track HPC-02 calibration fetch ;;
     *) echo "unknown source '$w'" >&2; exit 2 ;;
   esac
 done
 bittrellis verify-sources
+if printf '%s\n' "${want[@]}" | grep -qE '^(qwen36|qwen36_gguf|calibration02)$'; then bittrellis --track HPC-02 verify-sources; fi
