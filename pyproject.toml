@@ -13,6 +13,7 @@ authors = [{ name = "BitTrellis contributors" }]
 dependencies = [
     "numpy>=1.26",
     "PyYAML>=6.0",
+    "gguf==0.19.0",          # HPC-02: GGUF reading, writing and the reference block decoders
 ]
 
 [project.optional-dependencies]
