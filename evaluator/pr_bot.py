@@ -574,9 +574,15 @@ class Evaluator:
                         "calibration": Path(args.calibration)}
         fr = self.track["frontier"]
         self.speeds = BoxSpeeds(self.root, lambda *a, **k: run(*a, **k), self.py, self.env_args, args.sparkinfer,
-                                fr["epsilon_floor"], fr["incumbent"]) if getattr(args, "box_speeds", True) else None
+                                fr["epsilon_floor"], fr["incumbent"], self._gguf_formats if self.h2 else None
+                                ) if getattr(args, "box_speeds", True) else None
 
     # ---- per-box speeds (hpc01-e5) --------------------------------------------------------------
+
+    def _gguf_formats(self, manifest: dict) -> dict:
+        """HPC-02: {unit: format} of a recipe (what a speed run depends on)."""
+        units = self.h2.units(self.h2.read_template(self.h2_paths["template"]))
+        return {u: a.format for u, a in self.h2.expand(manifest, units, self.h2.ud_formats(self.h2_paths["shipped"])).items()}
 
     @property
     def speed_args(self) -> list[str]:
@@ -1327,7 +1333,6 @@ def main() -> int:
                 setattr(args, arg, str(REPO_ROOT / paths[key]))
         if args.seeds == ap.get_default("seeds"):
             args.seeds = str(REPO_ROOT / "results/hpc02/artifacts")
-        args.box_speeds = False   # per-box reference speeds are measured for HPC-01 recipes only
 
     gh = GitHub(args.repo, os.environ[args.token_env])
     gh.ensure_labels()

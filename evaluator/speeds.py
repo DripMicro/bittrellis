@@ -72,6 +72,35 @@ def speed_manifest(manifest: dict) -> tuple[dict, bool]:
     return m, changed
 
 
+def speed_manifest_gguf(manifest: dict) -> tuple[dict, bool]:
+    """HPC-02: the same, with every regenerable encoder other than kq_rtn written by kq_rtn (same formats).
+    Attested bytes (unsloth_ud) are copied, which is already fast."""
+    from bittrellis import hpc02 as H
+
+    m, changed = json.loads(json.dumps(manifest)), False
+
+    def swap(spec: dict) -> None:
+        nonlocal changed
+        enc = spec.get("encoder")
+        if enc and enc != "kq_rtn" and enc in H.ENCODERS and H.ENCODERS[enc].lineage == "regenerable":
+            spec["encoder"] = "kq_rtn"
+            spec.pop("params", None)
+            changed = True
+
+    for r in m.get("rules") or []:
+        swap(r)
+    for spec in (m.get("modules") or {}).values():
+        if isinstance(spec, dict):
+            swap(spec)
+    for fmt, enc in list((m.get("encoders") or {}).items()):
+        one = {"encoder": enc}
+        swap(one)
+        m["encoders"][fmt] = one["encoder"]
+    if changed:
+        m["name"] = m["name"] + "-speed"
+    return m, changed
+
+
 def kernels(manifest: dict) -> dict:
     """Per unit: the stored format and the kernels it runs on -- what a speed run depends on."""
     return {u: (e.get("source_format"), json.dumps(e.get("execution"), sort_keys=True))
@@ -89,7 +118,10 @@ def drifted(stored: dict, now: dict, floors: dict) -> list[str]:
 
 
 class BoxSpeeds:
-    def __init__(self, root: Path, run, py: list[str], env_args: list[str], sparkinfer: str, floors: dict, incumbent: str):
+    def __init__(self, root: Path, run, py: list[str], env_args: list[str], sparkinfer: str, floors: dict, incumbent: str,
+                 gguf_formats=None):
+        # gguf_formats (HPC-02): manifest -> {unit: format}; a reference is then one GGUF file, <checkpoint>/model.gguf
+        self.gguf_formats = gguf_formats
         self.dir = Path(root) / "speeds"
         self.run, self.py, self.env_args, self.sparkinfer = run, py, env_args, sparkinfer
         self.floors, self.incumbent = floors, incumbent
@@ -177,21 +209,30 @@ class BoxSpeeds:
         is_v0 = cand["name"] == self.incumbent  # V0's checkpoint is kept: it is re-measured next to every PR
         ckpt = self.dir / "v0-checkpoint" if is_v0 else work / "checkpoint"
         fast_bytes = False   # V0 is built from its own recipe (default bytes already) and kept
+        gguf = self.gguf_formats is not None
+        model = ckpt / "model.gguf" if gguf else ckpt
         try:
-            if not (ckpt / "bittrellis_build.json").exists():
+            if not (Path(str(model) + ".build.json") if gguf else ckpt / "bittrellis_build.json").exists():
                 shutil.rmtree(ckpt, ignore_errors=True)
+                if gguf:
+                    ckpt.mkdir(parents=True)
                 manifest = work / "manifest.yaml"
-                built, fast_bytes = speed_manifest(cand["manifest"])
+                built, fast_bytes = (speed_manifest_gguf if gguf else speed_manifest)(cand["manifest"])
                 manifest.write_text(json.dumps(built))  # YAML is a superset of JSON
-                if self.run(self.py + ["build", str(manifest), "--out", str(ckpt)] + self.env_args, self.dir, self.log) != 0:
+                if self.run(self.py + ["build", str(manifest), "--out", str(model)] + self.env_args, self.dir, self.log) != 0:
                     return None
             out = work / "artifact"
-            if self.run(self.py + ["benchmark", str(ckpt), "--out", str(out), "--sparkinfer", self.sparkinfer] + self.env_args,
+            if self.run(self.py + ["benchmark", str(model), "--out", str(out), "--sparkinfer", self.sparkinfer] + self.env_args,
                         self.dir, self.log) != 0:
                 return None
             got = json.loads((out / "candidate.json").read_text())
             # exactly the reference that is ranked -- or, with default bytes, the same formats on the same kernels
-            same = (kernels(got.get("manifest", {})) == kernels(cand["manifest"])) if fast_bytes else got["id"] == cand["id"]
+            if not fast_bytes:
+                same = got["id"] == cand["id"]
+            elif gguf:
+                same = self.gguf_formats(got.get("manifest", {})) == self.gguf_formats(cand["manifest"])
+            else:
+                same = kernels(got.get("manifest", {})) == kernels(cand["manifest"])
             if not same:
                 with open(self.log, "a") as fh:
                     fh.write(f"[speeds] {cand['name']}: rebuilt checkpoint is not the ranked reference ({got['id']})\n")

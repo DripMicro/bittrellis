@@ -111,3 +111,20 @@ def test_speed_runs_build_regenerable_encoders_with_default_bytes():
     a = {"expanded": {"L0.mlp": {"source_format": "NVFP4", "quantizer": "rtn@v1", "execution": {"decode_b1": "NVFP4"}}}}
     b = {"expanded": {"L0.mlp": {"source_format": "NVFP4", "quantizer": "baseline@v1", "execution": {"decode_b1": "NVFP4"}}}}
     assert speeds.kernels(a) == speeds.kernels(b)                   # bytes differ, kernels do not
+
+
+def test_hpc02_speed_runs_write_regenerable_encoders_with_kq_rtn():
+    from bittrellis import hpc02
+
+    hpc02.register(hpc02.Encoder("slow_kq", 1, "regenerable", lambda ctx, fmt: b""))
+    m = {"name": "r", "default": "Q8_0", "encoders": {"Q4_K": "slow_kq", "Q8_0": "unsloth_ud"},
+         "rules": [{"match": "L*.exps.*", "format": "Q4_K", "encoder": "slow_kq", "params": {"x": 1}}],
+         "modules": {"lm_head": {"format": "Q6_K", "encoder": "slow_kq"}, "embed": "Q8_0"}}
+    built, changed = speeds.speed_manifest_gguf(m)
+    assert changed and built["name"] == "r-speed"
+    assert built["encoders"] == {"Q4_K": "kq_rtn", "Q8_0": "unsloth_ud"}           # attested bytes are only copied
+    assert built["rules"][0] == {"match": "L*.exps.*", "format": "Q4_K", "encoder": "kq_rtn"}
+    assert built["modules"]["lm_head"]["encoder"] == "kq_rtn" and m["modules"]["lm_head"]["encoder"] == "slow_kq"
+    assert speeds.speed_manifest_gguf({"name": "v0", "default": "Q8_0", "encoders": {"Q8_0": "unsloth_ud"}}) == \
+        ({"name": "v0", "default": "Q8_0", "encoders": {"Q8_0": "unsloth_ud"}}, False)
+    hpc02.ENCODERS.pop("slow_kq")
