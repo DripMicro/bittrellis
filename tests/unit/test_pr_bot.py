@@ -189,3 +189,17 @@ def test_a_pr_left_for_a_maintainer_is_told_the_real_reason():
     assert "adds no manifest" in pr_bot.not_evaluated_reason("other", ["README.md"], [])
     files = ["manifests/a.yaml", "README.md", "scripts/x.sh"]
     assert "(`README.md`, `scripts/x.sh`)" in pr_bot.not_evaluated_reason("other", files, ["manifests/a.yaml"])
+
+
+def test_each_pr_belongs_to_exactly_one_track():
+    hpc01 = ["manifests/my-recipe.yaml"]
+    hpc02 = ["manifests/hpc02/my-recipe.yaml"]
+    enc02 = ["bittrellis/hpc02_encoders/my_kq.py", "tests/unit/test_my_kq.py", "manifests/hpc02/uses-it.yaml"]
+    assert [pr_bot.track_of(f) for f in (hpc01, hpc02, enc02)] == ["HPC-01", "HPC-02", "HPC-02"]
+    assert pr_bot.classify(hpc01, "HPC-01") == ("manifest", hpc01)
+    assert pr_bot.classify(hpc02, "HPC-02") == ("manifest", hpc02)
+    assert pr_bot.classify(enc02, "HPC-02") == ("code", ["manifests/hpc02/uses-it.yaml"])
+    # HPC-01's evaluator never takes an HPC-02 recipe for one of its own manifests
+    assert pr_bot.classify(hpc02, "HPC-01")[1] == []
+    # the GGUF pipeline is evaluator code: a PR changing it is left for a maintainer
+    assert pr_bot.classify(["bittrellis/hpc02.py", "manifests/hpc02/x.yaml"], "HPC-02")[0] == "evaluator"

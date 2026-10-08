@@ -72,7 +72,22 @@ from speeds import BoxSpeeds, references  # noqa: E402
 
 MANIFEST_GLOB = "manifests/*.yaml"
 CODE_GLOBS = ("bittrellis/quantizers/*", "bittrellis/search.py", "tests/*")
+# HPC-02 (Qwen3.6-35B-A3B GGUF): recipes and contributed encoders live in their own folders, so a PR belongs to
+# exactly one track and each track's evaluator leaves the other's PRs alone.
+TRACK_PATHS = {"HPC-02": ("manifests/hpc02/*", "bittrellis/hpc02_encoders/*")}
+TRACK_GLOBS = {"HPC-01": ("manifests/*.yaml", CODE_GLOBS),
+               "HPC-02": ("manifests/hpc02/*.yaml", ("bittrellis/hpc02_encoders/*", "tests/*"))}
+
+
+def track_of(files: list[str]) -> str:
+    """The track a PR belongs to: HPC-02 if it touches that track's recipe or encoder folders, else HPC-01."""
+    for track, globs in TRACK_PATHS.items():
+        if any(fnmatch.fnmatch(f, g) for f in files for g in globs):
+            return track
+    return "HPC-01"
 EVALUATOR_GLOBS = ("configs/*", "data/*", "bittrellis/eval/*", "bittrellis/frontier/*", "bittrellis/validate.py",
+                   "bittrellis/hpc02.py", "bittrellis/kquant.py", "bittrellis/gguf_build.py", "bittrellis/moe_calibration.py",
+                   "bittrellis/calibration.py", "bittrellis/track.py", "bittrellis/_cpu_threads.py", "bittrellis/__init__.py",
                    "bittrellis/lineage.py", "bittrellis/holdout.py", "bittrellis/runtime.py", "bittrellis/build.py",
                    "bittrellis/fingerprint.py", "bittrellis/synthetic.py", "bittrellis/manifest.py", "bittrellis/precision.py",
                    "bittrellis/cli.py", "evaluator/*", "tools/*", ".github/*", "scripts/*", "pyproject.toml")
@@ -207,14 +222,16 @@ class GitHub:
             return False, f"HTTP {e.code} {reason}".strip()
 
 
-def classify(files: list[str]) -> tuple[str, list[str]]:
-    manifests = [f for f in files if fnmatch.fnmatch(f, MANIFEST_GLOB)]
+def classify(files: list[str], track: str = "HPC-01") -> tuple[str, list[str]]:
+    manifest_glob, code_globs = TRACK_GLOBS[track]
+    manifests = [f for f in files if fnmatch.fnmatch(f, manifest_glob)
+                 and (track != "HPC-01" or not any(fnmatch.fnmatch(f, g) for g in TRACK_PATHS["HPC-02"]))]
     if any(any(fnmatch.fnmatch(f, g) for g in EVALUATOR_GLOBS) for f in files):
         return "evaluator", manifests
     others = [f for f in files if f not in manifests]
     if not others and len(manifests) == 1:
         return "manifest", manifests
-    code = [f for f in others if any(fnmatch.fnmatch(f, g) for g in CODE_GLOBS)]
+    code = [f for f in others if any(fnmatch.fnmatch(f, g) for g in code_globs)]
     if code and all(f in code or f.endswith(".md") for f in others) and len(manifests) <= 1:
         return "code", manifests
     return "other", manifests
@@ -511,7 +528,7 @@ class Evaluator:
         os.chmod(self.root, 0o711)
         (self.root / "prs").mkdir(exist_ok=True)
         os.chmod(self.root / "prs", 0o711)
-        self.track = load_track("HPC-01")
+        self.track = load_track(getattr(args, "track", "HPC-01"))
         self.cfg = self.track["evaluation"]["screen"]
         self.epoch = self.track["evaluation"]["epoch"]
         self.obs = G.Observations(self.root)
@@ -536,7 +553,8 @@ class Evaluator:
             self.restore(Path(args.ledger))
             self.ledger = Ledger(Path(args.ledger), self.epoch)
             os.chmod(self.ledger.root, 0o700)
-        self.py = [sys.executable, "-m", "bittrellis.cli"]
+        self.py = [sys.executable, "-m", "bittrellis.cli", "--track", self.track.id]
+        self._files: dict[tuple[int, str], list[str]] = {}
         # Trusted builds reuse encoder outputs (bittrellis/build.py, encode_cached). Only the evaluator can read
         # or write the cache, and the sandbox's environment never names it.
         self.encode_cache = self.root / "encode-cache"
@@ -596,7 +614,9 @@ class Evaluator:
         # A new epoch changes the rules, not the history: who submitted first, and which PRs are merged, carry
         # over from earlier epochs. Seeds are not carried: they come from the repository, judged by this epoch.
         src = ledger_dir / self.epoch
+        same_track = self.epoch.split("-")[0]      # hpc01-e6 -> hpc01: another track's history never carries over
         earlier = sorted((d for d in ledger_dir.iterdir() if d.is_dir() and d.name != self.epoch
+                          and d.name.split("-")[0] == same_track
                           and (d / "observations").exists()), reverse=True) if ledger_dir.exists() else []
         seeds = {p.name for p in self._artifacts(Path(self.args.seeds))}
         obs = 0
@@ -648,10 +668,38 @@ class Evaluator:
 
     # ---- one pass -------------------------------------------------------------------------
 
+    def gpu(self):
+        """Exclusive use of the GPU across evaluators on this box (one per track): a file lock around every
+        evaluation, so two tracks never measure speed or memory at the same time. Without --gpu-lock, a no-op."""
+        import contextlib
+        import fcntl
+
+        path = getattr(self.args, "gpu_lock", None)
+        if not path:
+            return contextlib.nullcontext()
+
+        @contextlib.contextmanager
+        def held():
+            with open(path, "a") as fh:
+                fcntl.flock(fh, fcntl.LOCK_EX)
+                try:
+                    yield
+                finally:
+                    fcntl.flock(fh, fcntl.LOCK_UN)
+        return held()
+
+    def files_of(self, pr: dict) -> list[str]:
+        key = (pr["number"], pr["head"]["sha"])
+        if key not in self._files:
+            self._files[key] = [f["filename"] for f in self.gh.paged(f"/pulls/{pr['number']}/files")]
+        return self._files[key]
+
     def run_once(self) -> None:
         self.sync_merged()
-        self.ensure_speeds()  # a newly merged result, or a new machine, is measured here before anything is ranked
-        open_prs = self.gh.paged("/pulls?state=open&sort=created&direction=asc")
+        with self.gpu():
+            self.ensure_speeds()  # a newly merged result, or a new machine, is measured here before anything is ranked
+        open_prs = [p for p in self.gh.paged("/pulls?state=open&sort=created&direction=asc")
+                    if track_of(self.files_of(p)) == self.track.id]   # the other track's evaluator owns the rest
         first_seen = {}
         for pr in open_prs:  # observe everything before evaluating anything
             o = self.obs.observe(pr["number"], pr["user"]["login"], pr["head"]["sha"])
@@ -664,7 +712,8 @@ class Evaluator:
             if status and status not in RESCREEN and status != "resume" and not (status == "error" and entry.get("errors", 0) < MAX_ERRORS):
                 continue
             try:
-                self.evaluate(pr, open_prs, resume=status == "resume")
+                with self.gpu():
+                    self.evaluate(pr, open_prs, resume=status == "resume")
             except Exception as e:  # noqa: BLE001 - one broken PR must not stop the queue
                 self.state[key] = {**self.state.get(key, {}), "status": "error", "error": repr(e),
                                    "errors": entry.get("errors", 0) + 1}
@@ -792,8 +841,8 @@ class Evaluator:
         work.mkdir(parents=True, exist_ok=True)
         log = work / "eval.log"
         labels = {lab["name"] for lab in pr["labels"]}
-        files = [f["filename"] for f in self.gh.paged(f"/pulls/{number}/files")]
-        kind, manifests = classify(files)
+        files = self.files_of(pr)
+        kind, manifests = classify(files, self.track.id)
         base_entry = {"pr": number, "head": sha, "author": author, "first_seen": me["first_seen"], "kind": kind}
 
         def finish(status: str, label: str | None = None, body: str | None = None, **extra) -> None:
@@ -1211,9 +1260,22 @@ def main() -> int:
     ap.add_argument("--merge-method", default="squash", choices=("squash", "merge", "rebase"))
     ap.add_argument("--no-box-speeds", dest="box_speeds", action="store_false",
                     help="rank with each result's stored speed instead of speeds re-measured on this machine")
+    ap.add_argument("--track", default=os.environ.get("BT_TRACK", "HPC-01"), choices=("HPC-01", "HPC-02"))
+    ap.add_argument("--gpu-lock", default=os.environ.get("BT_GPU_LOCK"),
+                    help="file locked around every evaluation; give every evaluator on the box the same one")
     ap.add_argument("--once", action="store_true")
     ap.add_argument("--interval", type=int, default=600)
     args = ap.parse_args()
+    if args.track == "HPC-02":   # its own pinned paths (configs/hpc02.yaml model.paths), unless given explicitly
+        from bittrellis.track import load_track
+
+        paths = load_track("HPC-02")["model"]["paths"]
+        for arg, key in (("sparkinfer", "sparkinfer"), ("reference", "reference"), ("shipped", "shipped")):
+            if getattr(args, arg) == ap.get_default(arg):
+                setattr(args, arg, str(REPO_ROOT / paths[key]))
+        if args.seeds == ap.get_default("seeds"):
+            args.seeds = str(REPO_ROOT / "results/hpc02/artifacts")
+        args.box_speeds = False   # per-box reference speeds are measured for HPC-01 recipes only
 
     gh = GitHub(args.repo, os.environ[args.token_env])
     gh.ensure_labels()

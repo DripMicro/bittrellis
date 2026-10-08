@@ -202,3 +202,27 @@ def test_which_checkpoint_offers_only_standing_holdout_passes_one_row_per_recipe
     assert "**0.1240 · 8.8% closer**" in text and "9,000 tok/s · 39% slower" in text   # bold only what it was picked for
     assert "bittrellis build manifests/lean.yaml" in text and "tradeoffs.svg" in text
     assert L.recommend({"incumbent": "V0", "internal": []}, merged) == []
+
+
+def test_two_evaluators_publish_to_one_record(tmp_path, monkeypatch):
+    """One evaluator per track, each with its own clone, push records to the same remote: neither is rejected."""
+    import subprocess
+
+    remote = tmp_path / "remote.git"
+    subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(remote)], check=True)
+    monkeypatch.setenv("GIT_AUTHOR_NAME", "t")
+    monkeypatch.setenv("GIT_AUTHOR_EMAIL", "t@t")
+    monkeypatch.setenv("GIT_COMMITTER_NAME", "t")
+    monkeypatch.setenv("GIT_COMMITTER_EMAIL", "t@t")
+    a, b = tmp_path / "a", tmp_path / "b"
+    (a / "hpc01-e6").mkdir(parents=True)
+    (a / "hpc01-e6" / "r1.json").write_text("{}")
+    assert P.publish(a, str(remote), None, "records: a")
+    P.adopt(b, str(remote), None)
+    (a / "hpc01-e6" / "r2.json").write_text("{}")
+    assert P.publish(a, str(remote), None, "records: a2")                 # a moves the remote on
+    (b / "hpc02-e1").mkdir()
+    (b / "hpc02-e1" / "s1.json").write_text("{}")
+    assert P.publish(b, str(remote), None, "records: b")                  # b is behind, but still publishes
+    log = subprocess.run(["git", "--git-dir", str(remote), "ls-tree", "-r", "--name-only", "main"], capture_output=True, text=True).stdout.split()
+    assert sorted(log) == ["hpc01-e6/r1.json", "hpc01-e6/r2.json", "hpc02-e1/s1.json"]

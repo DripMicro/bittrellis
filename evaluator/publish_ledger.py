@@ -105,6 +105,14 @@ def publish(ledger: Path, remote: str, token: str | None, message: str, branch: 
     git(["add", "-A"], ledger)
     if git(["status", "--porcelain"], ledger).stdout.strip():
         git(["commit", "-q", "-m", message], ledger)
+    # One evaluator per track pushes to the same record: replay this one's new records on top of what the other
+    # published since. Records are write-once files in per-epoch folders, so the rebase cannot conflict; if it
+    # somehow does, nothing is pushed and the next pass tries again. Never a force.
+    git(["fetch", "--quiet", "origin", branch], ledger, token, check=False)
+    if git(["rev-parse", "--verify", "--quiet", f"origin/{branch}"], ledger, check=False).returncode == 0:
+        if git(["rebase", "--quiet", f"origin/{branch}"], ledger, check=False).returncode != 0:
+            git(["rebase", "--abort"], ledger, check=False)
+            return None
     head = git(["rev-parse", "HEAD"], ledger, check=False)
     if head.returncode != 0:
         return None                                  # nothing has ever been recorded

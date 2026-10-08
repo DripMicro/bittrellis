@@ -92,6 +92,9 @@ def bot(tmp_path, monkeypatch):
     def fake_run(cmd, cwd, log, timeout=0):
         if cmd[0] == "git":
             return 0
+        if cmd[3] == "--track":   # python -m bittrellis.cli --track HPC-01 <sub> ...: read it as the CLI does
+            assert cmd[4] == "HPC-01"
+            cmd = cmd[:3] + cmd[5:]
         sub = cmd[3]
         if Path(cwd).name == "speeds":
             return fake_speed_run(sub, cmd)
