@@ -25,8 +25,11 @@ for w in "${want[@]}"; do
     # HPC-02 (Qwen3.6-35B-A3B): BF16 weights (references, calibration; 67 GB), llama.cpp's BF16 GGUF template and
     # unsloth's UD-Q4_K_M (V0) (91 GB), the pinned calibration statistics (1.4 GB)
     qwen36)  hf download "$PIN_QWEN36_BF16_REPO" --revision "$PIN_QWEN36_BF16_REVISION" --local-dir "$MODELS_DIR/Qwen3.6-35B-A3B" --max-workers 16 ;;
-    qwen36_gguf) hf download "$PIN_QWEN36_GGUF_REPO" --revision "$PIN_QWEN36_GGUF_REVISION" --include "BF16/*" "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf" \
-                   --local-dir "$MODELS_DIR/Qwen3.6-35B-A3B-GGUF" --max-workers 8 ;;
+    qwen36_gguf)   # two calls: a file name given next to --include makes hf ignore the pattern
+      hf download "$PIN_QWEN36_GGUF_REPO" --revision "$PIN_QWEN36_GGUF_REVISION" --include "BF16/*" \
+        --local-dir "$MODELS_DIR/Qwen3.6-35B-A3B-GGUF" --max-workers 8
+      hf download "$PIN_QWEN36_GGUF_REPO" "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf" --revision "$PIN_QWEN36_GGUF_REVISION" \
+        --local-dir "$MODELS_DIR/Qwen3.6-35B-A3B-GGUF" ;;
     calibration02) bittrellis --track HPC-02 calibration fetch ;;
     *) echo "unknown source '$w'" >&2; exit 2 ;;
   esac
