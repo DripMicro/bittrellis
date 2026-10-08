@@ -554,6 +554,13 @@ class Evaluator:
             self.ledger = Ledger(Path(args.ledger), self.epoch)
             os.chmod(self.ledger.root, 0o700)
         self.py = [sys.executable, "-m", "bittrellis.cli", "--track", self.track.id]
+        self.h2 = None
+        if self.track.id == "HPC-02":
+            from bittrellis import hpc02
+
+            hpc02.load_contributed()                  # encoders merged into main; a PR's own are never imported here
+            self.h2 = hpc02
+            self.h2_paths = {k: REPO_ROOT / v for k, v in self.track["model"]["paths"].items()}
         self._files: dict[tuple[int, str], list[str]] = {}
         # Trusted builds reuse encoder outputs (bittrellis/build.py, encode_cached). Only the evaluator can read
         # or write the cache, and the sandbox's environment never names it.
@@ -914,15 +921,17 @@ class Evaluator:
         if untrusted:
             self.sandbox.own(utr)
         ids = utr / "ids.json"
-        if xrun(self.py + ["manifest", str(manifest), "--ids-out", str(ids), "--shipped", self.args.shipped], code, log) != 0 or not ids.exists():
+        hpc02 = self.h2 is not None
+        if xrun(self.py + ["manifest", str(manifest), "--ids-out", str(ids)] + ([] if hpc02 else ["--shipped", self.args.shipped]),
+                code, log) != 0 or not ids.exists():
             return finish("invalid", "invalid", "BitTrellis evaluator: the manifest does not validate:\n\n```\n"
                           + error_summary(log.read_text()) + "\n```")
         ident = json.loads(ids.read_text())
         cid, keys = ident["id"], ident["keys"]
-        if candidate_hash_keys(self.track.id, keys) != cid:
+        if (self.h2.candidate_id_keys(keys) if hpc02 else candidate_hash_keys(self.track.id, keys)) != cid:
             return finish("invalid", "invalid", "BitTrellis evaluator: the candidate id reported by this PR's code does not "
                           "match its recipe.")
-        units = Qwen38Arch().units()
+        units = self.h2.units(self.h2.read_template(self.h2_paths["template"])) if hpc02 else Qwen38Arch().units()
         numel = {u.id: u.numel for u in units}
 
         # ---- screen: duplicates and near-copies (by expanded recipe) ----
@@ -947,7 +956,7 @@ class Evaluator:
                          "so this PR is credited only for what it adds.")
 
         # ---- screen: memory ----
-        mem = G.judge_memory(keys, units, self.seed_memory(), self.cfg)
+        mem = self._memory_hpc02(ident, units) if hpc02 else G.judge_memory(keys, units, self.seed_memory(), self.cfg)
         screen["memory"] = mem.to_dict()
         if mem.stop:
             return finish("memory", "memory", f"BitTrellis evaluator: **not measured**. {mem.reason}; it would run out of "
@@ -961,7 +970,7 @@ class Evaluator:
                    code, log, timeout=1800) != 0:
                 return finish("build", "build", "BitTrellis evaluator: the quantizer probe failed to run:\n\n```\n"
                               + error_summary(log.read_text()) + "\n```", screen=screen)
-            main_fp = F.by_quantizer(F.probe(None, self.probe_seed))
+            main_fp = F.by_quantizer(self.h2.probe(self.probe_seed) if hpc02 else F.probe(None, self.probe_seed))
             mine, again = F.by_quantizer(F.load_probe(pr_probe)), F.by_quantizer(F.load_probe(pr_repeat))
             new = {ref: fp for ref, fp in mine.items() if ref not in main_fp}
             new_refs = sorted(new)
@@ -984,12 +993,15 @@ class Evaluator:
 
         # ---- build and audit (CPU) ----
         ckpt, art = (work / "sealed" / "checkpoint") if untrusted else (work / "checkpoint"), work / "artifact"
-        if not (ckpt / "bittrellis_build.json").exists():
+        model = ckpt / "model.gguf" if hpc02 else ckpt          # what is evaluated: a GGUF file, or the checkpoint folder
+        built = Path(str(model) + ".build.json") if hpc02 else ckpt / "bittrellis_build.json"
+        if not built.exists():
             shutil.rmtree(ckpt, ignore_errors=True)
             out = utr / "checkpoint"
             shutil.rmtree(out, ignore_errors=True)
+            target = out / "model.gguf" if hpc02 else out
             # the sandbox cannot write the sources' verification cache; the trusted audit verifies every source
-            if xrun(self.py + ["build", str(manifest), "--out", str(out)] + (["--no-verify"] if untrusted else []) + self.env_args,
+            if xrun(self.py + ["build", str(manifest), "--out", str(target)] + (["--no-verify"] if untrusted else []) + self.env_args,
                     code, log) != 0:
                 shutil.rmtree(out, ignore_errors=True)  # a partial checkpoint can fill the disk for every later PR
                 return finish("build", "build", "BitTrellis evaluator: the checkpoint did not build:\n\n```\n"
@@ -998,19 +1010,20 @@ class Evaluator:
                 self.sandbox.seal(out, ckpt)
 
         # ---- screen: the new encoder's real stored bytes ----
-        if new_refs:
+        if new_refs and not hpc02:   # HPC-02 compares encoders by probe bytes and the audit's regenerations
             sv = self._sketch_guard(me, number, sha, keys, new_refs, units, ckpt, earlier)
             screen["stored_bytes"] = sv.to_dict()
             if sv.stop:
                 return finish(sv.outcome, sv.outcome, f"BitTrellis evaluator: **not measured**. {sv.reason}.", screen=screen)
 
-        ev = self.py + ["evaluate", str(ckpt), "--out", str(art), "--sparkinfer", self.args.sparkinfer,
+        ev = self.py + ["evaluate", str(model), "--out", str(art), "--sparkinfer", self.args.sparkinfer,
                         "--reference", self.args.reference, "--sample-secret-file", str(self.secret_path)] + self.env_args
         reuse = ["--audit-json", str(art / "audit.json")]
         if untrusted and not resume:
             manifest_text = subprocess.run(["git", "show", f"{sha}:{manifests[0]}"], cwd=REPO_ROOT, capture_output=True, text=True).stdout
             self._fresh_untrusted(utr, code, sha, manifest, manifest_text, log)  # nothing the build left behind survives
-            failed = self._isolated_audit(cid, keys, units, manifest, code, utr, work, ckpt, art, xrun, log)
+            failed = (self._isolated_audit_hpc02(cid, keys, units, manifest, code, utr, work, model, art, xrun, log) if hpc02
+                      else self._isolated_audit(cid, keys, units, manifest, code, utr, work, ckpt, art, xrun, log))
             if failed is not None:
                 return finish("audit", "audit", "BitTrellis evaluator: **audit failed**.\n\n" + "\n".join(f"- {e}" for e in failed[:20]),
                               screen=screen)
@@ -1061,7 +1074,7 @@ class Evaluator:
             incumbent = Path(self.args.seeds) / self.track["frontier"]["incumbent"]
             (art / "holdout.json").unlink(missing_ok=True)
             t0 = time.time()
-            run(self.py + ["holdout", "check", str(ckpt), "--private", self.args.private, "--artifact", str(art),
+            run(self.py + ["holdout", "check", str(model), "--private", self.args.private, "--artifact", str(art),
                            "--incumbent-artifact", str(incumbent), "--shipped", self.args.shipped, "--sparkinfer", self.args.sparkinfer],
                 REPO_ROOT, log)  # always trusted code: contributed code must never see the private holdout
             if not (art / "holdout.json").exists():  # a crash must never read as "no holdout failure"
@@ -1131,6 +1144,44 @@ class Evaluator:
         art.mkdir(parents=True, exist_ok=True)
         run(self.py + ["audit", str(ckpt), "--out", str(art / "audit.json"), "--sample-secret-file", str(self.secret_path),
                        "--regenerated", str(sealed)] + self.env_args, REPO_ROOT, log)
+        doc = json.loads((art / "audit.json").read_text()) if (art / "audit.json").exists() else {"ok": False, "errors": ["audit crashed"]}
+        return None if doc["ok"] else doc["errors"]
+
+    def _memory_hpc02(self, ident: dict, units) -> G.Verdict:
+        """HPC-01's memory rule for GGUF recipes: this recipe's stored weights plus the largest measured overhead of a
+        seed (its peak minus its weights) plus the margin must fit the card."""
+        gib = 1024**3
+        ud = self.h2.ud_formats(self.h2_paths["shipped"])
+        overhead = 0.0
+        for p in self._artifacts(Path(self.args.seeds)):
+            cand, perf = json.loads((p / "candidate.json").read_text()), p / "performance.json"
+            if perf.exists() and cand.get("manifest"):
+                a = self.h2.expand(cand["manifest"], units, ud)
+                overhead = max(overhead, json.loads(perf.read_text())["peak_gpu_gib"] - self.h2.predicted_bytes(units, a) / gib)
+        predicted = ident["searchable_bytes"] / gib + overhead + self.cfg["memory_margin_gib"]
+        details = {"predicted_peak_gib": round(predicted, 2), "limit_gib": self.cfg["peak_gpu_limit_gib"]}
+        if predicted > self.cfg["peak_gpu_limit_gib"]:
+            return G.Verdict("memory", f"predicted peak {predicted:.1f} GiB exceeds {self.cfg['peak_gpu_limit_gib']} GiB", details=details)
+        return G.Verdict("pass", details=details)
+
+    def _isolated_audit_hpc02(self, cid, keys, units, manifest, code, utr, work, model, art, xrun, log) -> list[str] | None:
+        """HPC-01's isolated audit for GGUF: contributed encoders rebuild their secretly sampled tensors in the sandbox,
+        from the template only; trusted code compares them with the candidate's bytes."""
+        assign = {uid: self.h2.Assignment(k.split("@", 1)[0], k.split("@", 2)[1]) for uid, k in keys.items()}
+        foreign = sorted({a.encoder for a in assign.values()} - set(self.h2.ENCODERS))
+        targets = sorted({u.id for e in foreign for u in self.h2.samples(units, assign, e, f"{cid}:{self.secret}")})
+        regen, sealed = utr / "regen", work / "sealed" / "regen"
+        shutil.rmtree(regen, ignore_errors=True)
+        shutil.rmtree(sealed, ignore_errors=True)
+        if targets:
+            if xrun(self.py + ["regenerate", str(manifest), "--units", ",".join(targets), "--out", str(regen)], code, log) != 0:
+                return ["the contributed encoder failed to regenerate the audit samples"]
+            self.sandbox.seal(regen, sealed)
+        else:
+            sealed.mkdir(parents=True, exist_ok=True)
+        art.mkdir(parents=True, exist_ok=True)
+        run(self.py + ["audit", str(model), "--out", str(art / "audit.json"), "--sample-secret-file", str(self.secret_path),
+                       "--regenerated", str(sealed)], REPO_ROOT, log)
         doc = json.loads((art / "audit.json").read_text()) if (art / "audit.json").exists() else {"ok": False, "errors": ["audit crashed"]}
         return None if doc["ok"] else doc["errors"]
 
