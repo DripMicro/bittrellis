@@ -226,3 +226,12 @@ def test_two_evaluators_publish_to_one_record(tmp_path, monkeypatch):
     assert P.publish(b, str(remote), None, "records: b")                  # b is behind, but still publishes
     log = subprocess.run(["git", "--git-dir", str(remote), "ls-tree", "-r", "--name-only", "main"], capture_output=True, text=True).stdout.split()
     assert sorted(log) == ["hpc01-e6/r1.json", "hpc01-e6/r2.json", "hpc02-e1/s1.json"]
+
+
+def test_each_track_writes_its_own_page(tmp_path):
+    L.Ledger(tmp_path, "hpc02-e1").frontier(FRONTIER)
+    assert (tmp_path / "hpc02-e1/README.md").exists() and not (tmp_path / "README.md").exists()
+    assert "bittrellis --track HPC-02 frontier hpc02-e1/accepted" in (tmp_path / "hpc02-e1/README.md").read_text()
+    L.Ledger(tmp_path, "hpc01-e6").frontier(FRONTIER)
+    front = (tmp_path / "README.md").read_text()
+    assert "[hpc02-e1](hpc02-e1/README.md)" in front and "bittrellis frontier hpc01-e6/accepted" in front

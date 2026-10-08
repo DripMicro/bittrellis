@@ -104,9 +104,14 @@ class Ledger:
         records = progress_chart.load(self.dir)
         merged = [r for r in records if r["merged"]]
         (self.dir / "frontier.json").write_text(json.dumps(doc, indent=1) + "\n")
-        (self.root / "README.md").write_text(render_readme(doc, self.epoch, merged))
-        (self.root / "progress.svg").write_text(progress_chart.render(records, self.epoch))
-        (self.root / "tradeoffs.svg").write_text(progress_chart.render_tradeoffs(doc, merged))
+        # One evaluator per track writes here: HPC-01 keeps the record's front page (and the links to it), every
+        # other track writes its page into its own epoch folder, and the front page links to those.
+        primary = self.epoch.startswith("hpc01")
+        page = self.root if primary else self.dir
+        others = sorted(p.parent.name for p in self.root.glob("*/README.md") if not p.parent.name.startswith("hpc01")) if primary else []
+        (page / "README.md").write_text(render_readme(doc, self.epoch, merged, others))
+        (page / "progress.svg").write_text(progress_chart.render(records, self.epoch))
+        (page / "tradeoffs.svg").write_text(progress_chart.render_tradeoffs(doc, merged))
 
 
 TIER_COLORS = {"XL": "0e8a16", "L": "2da44e", "M": "4ac26b", "S": "8ddb8c", "XS": "c6efce"}  # as evaluator/pr_bot.py
@@ -163,14 +168,17 @@ def recommend(frontier: dict, merged: list[dict]) -> list[str]:
     return lines
 
 
-def render_readme(frontier: dict, epoch: str, merged: list[dict] | None = None) -> str:
+def render_readme(frontier: dict, epoch: str, merged: list[dict] | None = None, other_tracks: list[str] | None = None) -> str:
     rows = sorted((r for r in frontier.get("internal", [])), key=lambda r: r["rp_kl"])
+    track = "HPC-" + epoch.split("-")[0][3:]                       # hpc02-e1 -> HPC-02
+    flag = "" if track == "HPC-01" else f"--track {track} "
+    others = ["Other tracks: " + " · ".join(f"[{d}]({d}/README.md)" for d in other_tracks), ""] if other_tracks else []
     lines = [f"# BitTrellis score records ({epoch})", "",
              "> Every evaluated pull request, the frontier it was ranked against, and the artifacts behind both.",
-             "", *recommend(frontier, merged or []),
+             "", *others, *recommend(frontier, merged or []),
              "## Progress", "", "![Frontier gain credited to merged pull requests over time, pull requests scored per day by outcome, and the authors with the most credited gain.](progress.svg)",
              "", "## Every measured result", "", "Written by the evaluator after each pass. Re-derive any score yourself:", "",
-             "```bash", f"bittrellis frontier {epoch}/accepted <your artifact>", "```", "",
+             "```bash", f"bittrellis {flag}frontier {epoch}/accepted <your artifact>", "```", "",
              "| | Checkpoint | RP-KL ↓ | tasks ↑ | decode tok/s ↑ | prefill 4K tok/s ↑ | peak GPU GiB ↓ | holdout | FG-2 |",
              "|---|---|---:|---:|---:|---:|---:|---|---:|"]
     for r in rows:
