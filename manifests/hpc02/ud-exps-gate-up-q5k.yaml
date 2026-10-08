@@ -1,0 +1,26 @@
+schema: bittrellis/manifest@2
+track: HPC-02
+name: ud-exps-gate-up-q5k
+description: >
+  unsloth UD-Q4_K_M (V0: RP-KL 0.0450, decode 397, 25.5 GiB) with the routed expert gate and up projections raised
+  from Q4_K to Q5_K (kq_rtn); every other byte is unsloth's. The routed gate/up are 62% of the weights and the only
+  tensors V0 keeps at 4 bits; V3 spends 3.7 GiB more on Q5_K gate/up plus Q6_K downs and lowers drift to 0.0340.
+  This spends about 2.5 GiB on gate/up alone, keeping unsloth's downs, for a point between V0 and V3 on drift and
+  memory where no recipe sits. Decode reads 8 of 256 experts per token, so it should stay near V0's.
+authors: [kaivexa]
+default: Q8_0
+encoders: {Q4_K: unsloth_ud, Q5_K: unsloth_ud, Q6_K: unsloth_ud, Q8_0: unsloth_ud}
+rules:
+  - match: "L*.exps.gate"
+    format: Q5_K
+    encoder: kq_rtn
+  - match: "L*.exps.up"
+    format: Q5_K
+    encoder: kq_rtn
+  - match: "L*.exps.down"
+    format: Q5_K
+modules:
+  L34.exps.down: Q6_K
+  L38.exps.down: Q6_K
+  L39.exps.down: Q6_K
+  lm_head: Q6_K
