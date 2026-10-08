@@ -48,7 +48,8 @@ them):
 | `embed`, `lm_head` | token embeddings, output head | — |
 
 Every other tensor (norms, router, recurrent constants) is the template's, byte for byte.
-`bittrellis --track HPC-02 manifest manifests/hpc02/<name>.yaml` validates a recipe and prints its id and size.
+`bittrellis --track HPC-02 manifest manifests/hpc02/<name>.yaml` validates a recipe and prints its id and size;
+it needs no model download (the unit list is in [`configs/hpc02_units.json`](../configs/hpc02_units.json)).
 
 **Encoders.** `kq_rtn` (built in) rounds each block to its own range. `unsloth_ud` copies unsloth's bytes for a
 unit where UD-Q4_K_M stores exactly that format. Anything better is a contributed encoder.

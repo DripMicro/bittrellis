@@ -283,6 +283,22 @@ def ud_formats(ud_gguf: Path) -> dict[str, str]:
     return {t.name: t.tensor_type.name for t in GGUFReader(ud_gguf).tensors}
 
 
+# The unit list and UD's formats, committed so a recipe can be checked without the 69 GB template; the evaluator
+# checks it against the pinned template in verify-sources.
+UNITS_FILE = Path(__file__).resolve().parents[1] / "configs" / "hpc02_units.json"
+
+
+def units_doc(us: list[Unit], udf: dict[str, str]) -> dict:
+    return {"units": [[u.id, u.tensor, u.layer, u.kind, u.cols, u.rows] for u in us],
+            "ud_formats": {u.tensor: udf.get(u.tensor) for u in us}}
+
+
+def read_units_file(path: Path = UNITS_FILE) -> tuple[list[Unit], dict[str, str]]:
+    d = json.loads(Path(path).read_text())
+    us = [Unit(i, t, layer, k, c, r, c * r) for i, t, layer, k, c, r in d["units"]]
+    return us, d["ud_formats"]
+
+
 # ------------------------------------------------------------------ build
 
 

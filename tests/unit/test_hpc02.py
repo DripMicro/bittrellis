@@ -1,3 +1,5 @@
+import json
+
 import numpy as np
 import pytest
 import yaml
@@ -118,3 +120,10 @@ def test_build_then_audit_and_tampering_is_caught(tiny, tmp_path):
         fh.write(bytes([b[0] ^ 1]))
     bad = hpc02.audit(out, m, tdir, ud=ud, secret="s", verify=False, **QUIET)
     assert not bad["ok"] and any("embed" in e for e in bad["errors"])
+
+
+def test_committed_unit_list_reads_back():
+    us, udf = hpc02.read_units_file()
+    assert len(us) == 372 and us[0].id == "embed" and us[-1].id == "lm_head"
+    assert sum(u.kind.startswith("exps.") for u in us) == 120 and set(udf.values()) <= set(hpc02.FORMATS)
+    assert hpc02.units_doc(us, udf) == json.loads(hpc02.UNITS_FILE.read_text())   # round trip

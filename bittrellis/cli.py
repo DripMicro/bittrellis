@@ -110,12 +110,15 @@ def _hpc02(track):
 def cmd_manifest_hpc02(args, track) -> int:
     h = _hpc02(track)
     src = _hpc02_sources(track)
-    us = h.units(h.read_template(src["template_dir"]))
+    if any(Path(src["template_dir"]).glob("**/*.gguf")):
+        us, udf = h.units(h.read_template(src["template_dir"])), h.ud_formats(src["ud"])
+    else:                       # no models here: the committed unit list (checked against the template by the evaluator)
+        us, udf = h.read_units_file()
     status = 0
     for p in args.manifests:
         try:
             d = h.load_manifest(Path(p))
-            a = h.expand(d, us, h.ud_formats(src["ud"]))
+            a = h.expand(d, us, udf)
         except (h.ManifestError, yaml.YAMLError, KeyError) as e:
             print(f"✗ {p}: {e}")
             status = 1
@@ -203,8 +206,12 @@ def cmd_verify_sources(args) -> int:
     track = load_track(args.track)
     if track.id == "HPC-02":
         h = _hpc02(track)
-        errors = h.verify_sources(**_hpc02_sources(track)) + [f"source qwen36_bf16: {e}" for e in
-                                                              verify_source("qwen36_bf16", _p02(track, "base"), log=print).errors]
+        src = _hpc02_sources(track)
+        errors = h.verify_sources(**src) + [f"source qwen36_bf16: {e}" for e in
+                                            verify_source("qwen36_bf16", _p02(track, "base"), log=print).errors]
+        if not errors and h.units_doc(*h.read_units_file()) != h.units_doc(h.units(h.read_template(src["template_dir"])),
+                                                                            h.ud_formats(src["ud"])):
+            errors.append(f"{h.UNITS_FILE.name} does not match the pinned template")
         for e in errors:
             print(f"✗ {e}")
         print("✓ HPC-02 sources verified" if not errors else f"✗ {len(errors)} problems")

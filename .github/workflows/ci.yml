@@ -38,6 +38,8 @@ jobs:
           bittrellis corpus verify
           bittrellis manifest experiments/feasibility/variants/*.yaml
           for m in manifests/*.yaml; do [ -e "$m" ] || continue; bittrellis manifest "$m" --against manifests/ || exit 1; done
+          bittrellis --track HPC-02 manifest experiments/hpc02/*.yaml
+          for m in manifests/hpc02/*.yaml; do [ -e "$m" ] || continue; bittrellis --track HPC-02 manifest "$m" || exit 1; done
 
   llamacpp-tool:
     # Proves tools/llamacpp_score.cpp still compiles against the pinned llama.cpp headers.
