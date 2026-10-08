@@ -10,7 +10,7 @@ import yaml
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CONFIGS = REPO_ROOT / "configs"
-TRACK_FILES = {"HPC-01": "hpc01.yaml"}
+TRACK_FILES = {"HPC-01": "hpc01.yaml", "HPC-02": "hpc02.yaml"}
 
 
 @dataclass

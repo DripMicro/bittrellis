@@ -24,21 +24,39 @@ def reference_path(ref_dir: Path, stream_id: str) -> Path:
     return Path(ref_dir) / f"{stream_id}.npz"
 
 
-def build_reference(model_dir: Path, corpus: dict, out_dir: Path, topk: int = 256, gpu_gib: int = 14,
-                    cpu_gib: int = 58, chunk: int = 1024, log=print) -> dict:
+def load_bf16(model_dir: Path, gpu_gib: int, cpu_gib: int, offload: Path | None = None):
+    """(model, text body) in BF16 across GPU, CPU and (with `offload`) disk.
+
+    Qwen3.6-35B-A3B (model_type qwen3_5_moe) ships as a multimodal checkpoint whose weights are named
+    model.language_model.*; loaded as a causal LM, transformers attaches none of them and runs random
+    weights without an error. It is loaded as the multimodal model and its language model is the body.
+    The HPC-01 model keeps its original loader."""
     import torch
-    from transformers import AutoModelForCausalLM
+    from transformers import AutoModelForCausalLM, AutoModelForImageTextToText
+
+    cfg = json.loads((Path(model_dir) / "config.json").read_text())
+    kw = {"dtype": torch.bfloat16, "device_map": "auto", "max_memory": {0: f"{gpu_gib}GiB", "cpu": f"{cpu_gib}GiB"}}
+    if offload:
+        kw["offload_folder"] = str(offload)
+    if cfg.get("model_type") == "qwen3_5_moe":
+        model = AutoModelForImageTextToText.from_pretrained(model_dir, **kw)
+        body = model.model.language_model
+    else:
+        model = AutoModelForCausalLM.from_pretrained(model_dir, **kw)
+        body = model.model
+    model.eval()
+    return model, body
+
+
+def build_reference(model_dir: Path, corpus: dict, out_dir: Path, topk: int = 256, gpu_gib: int = 14,
+                    cpu_gib: int = 58, chunk: int = 1024, offload: Path | None = None, log=print) -> dict:
+    import torch
 
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     t0 = time.time()
-    model = AutoModelForCausalLM.from_pretrained(
-        model_dir, dtype=torch.bfloat16, device_map="auto",
-        max_memory={0: f"{gpu_gib}GiB", "cpu": f"{cpu_gib}GiB"},
-    )
-    model.eval()
+    model, body = load_bf16(model_dir, gpu_gib, cpu_gib, offload)
     log(f"[reference] loaded in {time.time() - t0:.0f}s: {type(model).__name__}")
-    body = model.model
     # The head is applied by hand from the pinned safetensors bytes: accelerate may offload it to
     # "meta", and a 2.4 GiB BF16 matrix on the GPU is cheaper than paging it in per chunk.
     with SafeTensorsDir(model_dir) as st:

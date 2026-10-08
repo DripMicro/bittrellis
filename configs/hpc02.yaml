@@ -1,0 +1,147 @@
+# HPC-02 — Qwen3.6-35B-A3B (mixture of experts) GGUF formats on one RTX 5090, pinned SparkInfer.
+# DRAFT (2026-10-08): not live; scoring and rewards follow HPC-01 unless noted.
+# Every number a result depends on is pinned here or in sources.lock.json.
+# Changing anything under `evaluation`, `frontier` or `gates` requires a new evaluator epoch.
+track: HPC-02
+version: 1
+title: Qwen3.6-35B-A3B × 1× RTX 5090 × SparkInfer (pinned commit)
+
+model:
+  vocab: 248320
+  sources_lock: configs/sources.lock.json
+  # The BF16 weights the reference runs, and llama.cpp's BF16 GGUF conversion of the same weights, whose
+  # metadata, tensor layout and every non-searchable tensor each candidate keeps byte for byte.
+  base: {source: qwen36_bf16, repo: Qwen/Qwen3.6-35B-A3B, revision: 995ad96eacd98c81ed38be0c5b274b04031597b0, dtype: bfloat16}
+  template: {source: qwen36_bf16_gguf, repo: unsloth/Qwen3.6-35B-A3B-GGUF, revision: a483e9e6cbd595906af30beda3187c2663a1118c, files: BF16/*.gguf}
+  # The popular free GGUF: the external point every recipe is compared with.
+  shipped: {source: qwen36_ud_q4km, repo: unsloth/Qwen3.6-35B-A3B-GGUF, revision: a483e9e6cbd595906af30beda3187c2663a1118c, file: Qwen3.6-35B-A3B-UD-Q4_K_M.gguf}
+  formats: [Q4_K, Q5_K, Q6_K, Q8_0]
+
+runtime:
+  repo: gittensor-ai-lab/sparkinfer
+  # The HPC-01 pin (b1ed168) corrupts this model's expert router (fixed upstream in f007540, 2026-10-03).
+  commit: f61355088ddd58549ad8db03675b4543785e1b53
+  cuda: "13.0"
+  cmake_args: [-DCMAKE_BUILD_TYPE=Release, -DCMAKE_CUDA_ARCHITECTURES=120, -DBUILD_SERVER=ON, -DBUILD_TESTS=OFF]
+  targets: [qwen3_gguf_bench, qwen3_gguf_score, sparkinfer_server]
+  # SparkInfer refits some stored formats to Q4_K at load for speed; off, so every recipe runs the formats it
+  # stores (attention Q8_0 and expert downs Q5_K/Q6_K would otherwise all execute as Q4_K). Sparse KV (a
+  # 4,096-token sliding window from 16K context, default on for this model's GQA-8 attention) is off too:
+  # with it no recipe retrieves the 32K needles BF16 retrieves.
+  env: {SPARKINFER_ATTN_REQUANT_Q4K: "0", SPARKINFER_MOE_DOWN_REQUANT_Q4K: "0", SPARKINFER_SPARSE_KV: "0"}
+
+hardware: {gpu: NVIDIA GeForce RTX 5090, count: 1, vram_mib: 32607}
+
+evaluation:
+  epoch: hpc02-e1
+  # hpc01-e6: regenerable encoders may read the pinned calibration statistics (source `calibration` in the lock:
+  # mean x xᵀ of every layer's MLP input over data/calibration/hpc01-calib-v1.json). Scoring is unchanged;
+  # every result carries over.
+  # hpc01-e5: every ranked result is compared on speed and memory as measured on the evaluator's own machine;
+  # references are re-measured there (evaluator/speeds.py). Quality, tasks and the holdout keep their results.
+  corpus:
+    public: data/corpus/hpc01-public-v2.json     # public development fidelity set
+  score:
+    reference_topk: 256        # fixed BF16 partition per position: top-256 ids + tail bucket
+    env:
+      SPARKINFER_DETERMINISTIC: "1"
+  performance:
+    runs: 2                    # two independent processes; never more
+    contexts: [128, 4096, 16384]
+    decode_tokens: 512         # longer window instead of more repetitions
+    primary_context: 4096
+    memory_workload: "peak device memory over one process that loads the model with max_seq 16,384 and runs prefill + 512-token decode at 128, 4,096 and 16,384 context"
+  tasks:
+    tier: full                 # every SparkInfer bench/quality item (784: IFEval 34, GSM8K 132, MMLU-Pro 298, HumanEval 20, BFCL 300), greedy, thinking off
+    server_ctx: 8192
+  holdout:
+    # Private rotating fidelity set: text never published during its epoch; results are PASS/FAIL.
+    rule: >
+      PASS if the candidate is audit-valid, its holdout RP-KL is at most gates.rp_kl_max, it keeps every
+      holdout needle BF16 retrieves, and -- when its public drift gain over V0 is above the RP-KL floor (the
+      gain FG-2 credits) -- its holdout gain over V0 is at least `min_gain_ratio` of the public gain. Both
+      gains are relative and section-balanced (frontier.drift), so neither the holdout's lower drift nor one
+      public section decides the verdict. (hpc01-e3 compared absolute nats, and only for significant gains.)
+    min_gain_ratio: 0.5
+  screen:
+    # Checks that run before any GPU time (evaluator/guards.py). See docs/guards.md.
+    near_copy_max_share: 0.02    # share of searchable weights assigned differently from an earlier PR by another author
+    copy_review_after: 3         # near-copies of other authors' PRs per epoch before a maintainer must clear the account
+    max_queued_per_author: 3     # an author's PRs waiting at once; later ones wait their turn, never rejected
+    peak_gpu_limit_gib: 31.5     # predicted peak above this would OOM on the 32 GB card
+    memory_margin_gib: 0.75      # added to the largest measured seed overhead
+    quantizer_same_bytes: 0.99   # identical-byte share at which two encoders are the same encoder
+
+frontier:
+  # Internal frontier: legal BitTrellis manifests on the pinned runtime. External references never
+  # enter dominance or Frontier Gain.
+  objectives:
+    rp_kl: min                 # Reference-Partition KL vs BF16, public corpus, nats/token
+    decode_tps: max            # batch-1 decode tok/s at primary_context, mean of the 2 runs
+    prefill_tps: max           # prefill tok/s at primary_context, mean of the 2 runs
+    peak_gpu_gib: min          # peak device memory under memory_workload
+  # "Materially different" = beyond max(floor, measured spread of either result).
+  # RP-KL additionally needs a paired block-bootstrap 95% interval that excludes 0.
+  epsilon_floor:
+    rp_kl: 0.002               # nats/token
+    decode_tps: 0.01           # relative
+    prefill_tps: 0.03          # relative
+    peak_gpu_gib: 0.10         # GiB
+  box:
+    rp_kl: [0.0, 0.30]
+    decode_tps: [60.0, 120.0]
+    prefill_tps: [2000.0, 20000.0]
+    peak_gpu_gib: [14.0, 32.0]
+  frontier_gain: FG-2
+  # hpc01-e4: RP-KL is section-balanced -- V0's RP-KL × the mean, over sections (each short category, and
+  # the long streams together), of the candidate's drift relative to V0's there. In hpc01-e3 the plain mean
+  # let the public maths stream, where V0 drifts most, decide most of every score.
+  drift: section-balanced
+  # Measured maintainer candidates that seed the internal frontier. Miners compete against these;
+  # resubmitting one earns nothing.
+  seeds: results/feasibility/artifacts
+  incumbent: V0-baseline-rebuild
+
+gates:
+  rp_kl_max: 0.30
+  top1_min: 0.80
+  task_guard:                  # paired per-question comparison with V0 (exact one-sided McNemar)
+    overall_alpha: 0.05        # fail if all 784 questions together show significantly more losses than gains
+    suite_alpha: 0.01          # the same test per suite
+    min_suite_retention: 0.5   # and never keep fewer than half of V0's passes in any suite
+  runtime_correctness: required
+  long_context_guard:
+    task: needle retrieval (3 codes at 10/50/90% depth), teacher-forced argmax on every code digit
+    required_success: {long-8k: 1.0, long-16k: 1.0, long-32k: 1.0}
+    counted_only_if_bf16_retrieves: true
+
+# Gittensor pays a merged PR by one trusted label (docs/rewards.md). The bot buckets the measured
+# frontier gain (FG-2) into the same eval:* tiers SparkInfer uses, so Gittensor pays them by label.
+# FG-2 is computed noise-aware (a result is handicapped by the epsilon floors, and must beat every other
+# result beyond noise somewhere), then bucketed. Calibrated to the seeds' noise-aware gains: V13's
+# calibrated MLP bytes (0.30%) are L, V0 (0.19%) is M, V4/V1 (0.05/0.04%) are S, V6/V5 are XS.
+# A gain below XS -- e.g. a copy of V0 that differs only within noise -- is eval:none.
+rewards:
+  label_family: eval
+  tiers_fg2: {XL: 0.0050, L: 0.0025, M: 0.0012, S: 0.00035, XS: 0.00005}   # minimum FG-2 per tier
+  multipliers: {XL: 4.0, L: 2.5, M: 1.5, S: 1.0, XS: 0.5, none: 0.0, REJECT: 0.0}
+
+# External reference points: context only.
+external_references:
+  R1:
+    name: unsloth NVFP4 (hand-tuned mixed NVFP4/FP8)
+    kind: sparkinfer
+    source: unsloth_nvfp4
+    note: runs on the pinned runtime but is not a legal manifest (FP8 attention bytes run as a Q4_K refit)
+  R2:
+    name: llama.cpp + unsloth UD-Q4_K_M (imatrix dynamic GGUF)
+    kind: llama.cpp
+    source: unsloth_gguf
+    file: Qwen3.8-27B-UD-Q4_K_M.gguf
+    llama_cpp_commit: d8df12ebc4592b55dcecf97a32953623d031efdc
+  R3:
+    name: NVIDIA NVFP4 (FP8 attention + GDN)
+    kind: compatibility-boundary
+    repo: nvidia/Qwen3.8-27B-NVFP4
+    revision: dbb8f445b3145f8a4c18ddc769f032d57d32867c
+    reason: per-tensor FP8 scales; the pinned loader accepts only per-row FP8 scales
