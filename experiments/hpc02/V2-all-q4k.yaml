@@ -1,0 +1,8 @@
+schema: bittrellis/manifest@2
+track: HPC-02
+name: V2-all-q4k
+description: >
+  Every searchable tensor Q4_K by the built-in kq_rtn: experts, shared experts, attention, recurrent
+  projections, embeddings and lm_head. The smallest map on this track; how much fidelity the attention and
+  shared-expert bits buy shows against V1.
+default: Q4_K

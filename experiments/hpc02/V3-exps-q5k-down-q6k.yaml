@@ -1,0 +1,17 @@
+schema: bittrellis/manifest@2
+track: HPC-02
+name: V3-exps-q5k-down-q6k
+description: >
+  More bits where the weights are: routed expert gate/up Q5_K and routed expert downs Q6_K, everything
+  else Q8_0 (lm_head Q6_K), all by the built-in kq_rtn. About 25 GB of weights, near what one 32 GB card
+  holds next to the KV cache; the high-fidelity end of the seeds.
+default: Q8_0
+rules:
+  - match: "L*.exps.gate"
+    format: Q5_K
+  - match: "L*.exps.up"
+    format: Q5_K
+  - match: "L*.exps.down"
+    format: Q6_K
+modules:
+  lm_head: Q6_K

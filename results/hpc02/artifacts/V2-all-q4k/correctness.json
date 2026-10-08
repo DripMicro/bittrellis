@@ -1,0 +1,22 @@
+{
+  "definition": [
+    "checkpoint loads in the pinned runtime (every scoring and benchmark process started and exited 0)",
+    "no NaN/Inf log-probabilities on any scored position",
+    "argmax token ids are inside the vocabulary",
+    "executed format of every unit matches the manifest (audit)",
+    "no SPARKINFER_* variable other than the track's pinned env reached the runtime"
+  ],
+  "loads_and_exits_cleanly": true,
+  "nonfinite_logprobs": 0,
+  "argmax_out_of_vocab": 0,
+  "scoring_env": {
+    "CUDA_HOME": "/usr/local/cuda",
+    "SPARKINFER_ATTN_REQUANT_Q4K": "0",
+    "SPARKINFER_DETERMINISTIC": "1",
+    "SPARKINFER_MOE_DOWN_REQUANT_Q4K": "0",
+    "SPARKINFER_SPARSE_KV": "0"
+  },
+  "peak_host_mib_scoring": 19232,
+  "ok": true,
+  "execution_map_matches_manifest": true
+}

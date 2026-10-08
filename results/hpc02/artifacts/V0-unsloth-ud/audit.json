@@ -1,0 +1,16 @@
+{
+  "ok": true,
+  "errors": [],
+  "n_errors": 0,
+  "candidate_id": "4883c375f423c695",
+  "lineage": {
+    "unsloth_ud@v1": {
+      "lineage": "attested",
+      "units": 372,
+      "checked": 372
+    }
+  },
+  "checkpoint_files": {
+    "V0.gguf": "35a0af20bdb77dcc6f3bc23dfe6650fac8376468cc9aaf70292c05028c96e8a9"
+  }
+}

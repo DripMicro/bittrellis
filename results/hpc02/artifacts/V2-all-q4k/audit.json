@@ -1,0 +1,23 @@
+{
+  "ok": true,
+  "errors": [],
+  "n_errors": 0,
+  "candidate_id": "a112498824be60d9",
+  "lineage": {
+    "kq_rtn@v1": {
+      "lineage": "regenerable",
+      "units": 372,
+      "sampled": [
+        "L19.exps.down",
+        "L26.shexp.gate",
+        "L27.attn.o",
+        "L34.exps.down",
+        "embed",
+        "lm_head"
+      ]
+    }
+  },
+  "checkpoint_files": {
+    "V2-all-q4k.gguf": "36911a8bd6a603bf13ec1ad1ab347b3b20ebd1b8472b88fd21085a1524322fde"
+  }
+}

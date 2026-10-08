@@ -1,0 +1,56 @@
+{
+  "id": "85d95dc6e0186f01",
+  "name": "V1-kq-rtn-udmap",
+  "kind": "internal",
+  "track": "HPC-02",
+  "manifest": {
+    "schema": "bittrellis/manifest@2",
+    "track": "HPC-02",
+    "name": "V1-kq-rtn-udmap",
+    "description": "unsloth UD-Q4_K_M's exact format map, every tensor encoded by the built-in kq_rtn (plain per-block rounding from BF16) instead of unsloth's calibrated bytes. Same size and speed as V0; the difference is the encoder alone.",
+    "default": "Q8_0",
+    "encoders": {
+      "Q4_K": "kq_rtn",
+      "Q5_K": "kq_rtn",
+      "Q6_K": "kq_rtn",
+      "Q8_0": "kq_rtn"
+    },
+    "rules": [
+      {
+        "match": "L*.exps.gate",
+        "format": "Q4_K"
+      },
+      {
+        "match": "L*.exps.up",
+        "format": "Q4_K"
+      },
+      {
+        "match": "L*.exps.down",
+        "format": "Q5_K"
+      }
+    ],
+    "modules": {
+      "L34.exps.down": "Q6_K",
+      "L38.exps.down": "Q6_K",
+      "L39.exps.down": "Q6_K",
+      "lm_head": "Q6_K"
+    }
+  },
+  "build": {
+    "candidate_id": "85d95dc6e0186f01",
+    "name": "V1-kq-rtn-udmap",
+    "track": "HPC-02",
+    "summary": {
+      "Q8_0@kq_rtn@v1": 251,
+      "Q4_K@kq_rtn@v1": 80,
+      "Q5_K@kq_rtn@v1": 37,
+      "Q6_K@kq_rtn@v1": 4
+    },
+    "tensors": 733,
+    "encoded": 432,
+    "bytes": 22134528736,
+    "sha256": "3fd9e772582f6d59c635febeb563be4f63bc0279f64d65fea7bcef2ce902238d"
+  },
+  "audit_ok": true,
+  "checkpoint_bytes": 22134528736
+}

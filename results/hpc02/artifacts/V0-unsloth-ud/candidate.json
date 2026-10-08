@@ -1,0 +1,56 @@
+{
+  "id": "4883c375f423c695",
+  "name": "V0-unsloth-ud",
+  "kind": "internal",
+  "track": "HPC-02",
+  "manifest": {
+    "schema": "bittrellis/manifest@2",
+    "track": "HPC-02",
+    "name": "V0-unsloth-ud",
+    "description": "The popular free GGUF, unsloth UD-Q4_K_M, rebuilt from its own bytes (attested): routed expert gate/up Q4_K, routed expert downs Q5_K except layers 34, 38 and 39 (Q6_K), shared experts, attention and recurrent projections Q8_0, embeddings Q8_0, lm_head Q6_K. The incumbent every HPC-02 recipe is measured against.\n",
+    "default": "Q8_0",
+    "encoders": {
+      "Q4_K": "unsloth_ud",
+      "Q5_K": "unsloth_ud",
+      "Q6_K": "unsloth_ud",
+      "Q8_0": "unsloth_ud"
+    },
+    "rules": [
+      {
+        "match": "L*.exps.gate",
+        "format": "Q4_K"
+      },
+      {
+        "match": "L*.exps.up",
+        "format": "Q4_K"
+      },
+      {
+        "match": "L*.exps.down",
+        "format": "Q5_K"
+      }
+    ],
+    "modules": {
+      "L34.exps.down": "Q6_K",
+      "L38.exps.down": "Q6_K",
+      "L39.exps.down": "Q6_K",
+      "lm_head": "Q6_K"
+    }
+  },
+  "build": {
+    "candidate_id": "4883c375f423c695",
+    "name": "V0-unsloth-ud",
+    "track": "HPC-02",
+    "summary": {
+      "Q8_0@unsloth_ud@v1": 251,
+      "Q4_K@unsloth_ud@v1": 80,
+      "Q5_K@unsloth_ud@v1": 37,
+      "Q6_K@unsloth_ud@v1": 4
+    },
+    "tensors": 733,
+    "encoded": 432,
+    "bytes": 22134528736,
+    "sha256": "35a0af20bdb77dcc6f3bc23dfe6650fac8376468cc9aaf70292c05028c96e8a9"
+  },
+  "audit_ok": true,
+  "checkpoint_bytes": 22134528736
+}

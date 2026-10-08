@@ -1,0 +1,23 @@
+{
+  "ok": true,
+  "errors": [],
+  "n_errors": 0,
+  "candidate_id": "5696a77fe5becbe7",
+  "lineage": {
+    "kq_rtn@v1": {
+      "lineage": "regenerable",
+      "units": 372,
+      "sampled": [
+        "L1.gdn.out",
+        "L32.exps.up",
+        "L38.gdn.qkv",
+        "L6.exps.down",
+        "embed",
+        "lm_head"
+      ]
+    }
+  },
+  "checkpoint_files": {
+    "V3-exps-q5k-down-q6k.gguf": "094283d19706d5748a49405ff5072bd537485a27280a870622a35b06dc307b08"
+  }
+}

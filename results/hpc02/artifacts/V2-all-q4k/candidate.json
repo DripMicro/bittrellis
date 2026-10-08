@@ -1,0 +1,27 @@
+{
+  "id": "a112498824be60d9",
+  "name": "V2-all-q4k",
+  "kind": "internal",
+  "track": "HPC-02",
+  "manifest": {
+    "schema": "bittrellis/manifest@2",
+    "track": "HPC-02",
+    "name": "V2-all-q4k",
+    "description": "Every searchable tensor Q4_K by the built-in kq_rtn: experts, shared experts, attention, recurrent projections, embeddings and lm_head. The smallest map on this track; how much fidelity the attention and shared-expert bits buy shows against V1.\n",
+    "default": "Q4_K"
+  },
+  "build": {
+    "candidate_id": "a112498824be60d9",
+    "name": "V2-all-q4k",
+    "track": "HPC-02",
+    "summary": {
+      "Q4_K@kq_rtn@v1": 372
+    },
+    "tensors": 733,
+    "encoded": 432,
+    "bytes": 19597458144,
+    "sha256": "36911a8bd6a603bf13ec1ad1ab347b3b20ebd1b8472b88fd21085a1524322fde"
+  },
+  "audit_ok": true,
+  "checkpoint_bytes": 19597458144
+}

@@ -1,0 +1,46 @@
+{
+  "id": "5696a77fe5becbe7",
+  "name": "V3-exps-q5k-down-q6k",
+  "kind": "internal",
+  "track": "HPC-02",
+  "manifest": {
+    "schema": "bittrellis/manifest@2",
+    "track": "HPC-02",
+    "name": "V3-exps-q5k-down-q6k",
+    "description": "More bits where the weights are: routed expert gate/up Q5_K and routed expert downs Q6_K, everything else Q8_0 (lm_head Q6_K), all by the built-in kq_rtn. About 25 GB of weights, near what one 32 GB card holds next to the KV cache; the high-fidelity end of the seeds.\n",
+    "default": "Q8_0",
+    "rules": [
+      {
+        "match": "L*.exps.gate",
+        "format": "Q5_K"
+      },
+      {
+        "match": "L*.exps.up",
+        "format": "Q5_K"
+      },
+      {
+        "match": "L*.exps.down",
+        "format": "Q6_K"
+      }
+    ],
+    "modules": {
+      "lm_head": "Q6_K"
+    }
+  },
+  "build": {
+    "candidate_id": "5696a77fe5becbe7",
+    "name": "V3-exps-q5k-down-q6k",
+    "track": "HPC-02",
+    "summary": {
+      "Q8_0@kq_rtn@v1": 251,
+      "Q5_K@kq_rtn@v1": 80,
+      "Q6_K@kq_rtn@v1": 41
+    },
+    "tensors": 733,
+    "encoded": 432,
+    "bytes": 26137991904,
+    "sha256": "094283d19706d5748a49405ff5072bd537485a27280a870622a35b06dc307b08"
+  },
+  "audit_ok": true,
+  "checkpoint_bytes": 26137991904
+}

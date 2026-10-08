@@ -94,8 +94,10 @@ frontier:
     peak_gpu_gib: 0.10         # GiB
   box:
     rp_kl: [0.0, 0.30]
-    decode_tps: [60.0, 120.0]
-    prefill_tps: [2000.0, 20000.0]
+    # DRAFT, to be approved with the track: fitted to this model (seeds decode 382-466 tok/s, prefill 37-40K tok/s,
+    # peak 23-29 GiB on the pinned RTX 5090); HPC-01's ranges (decode 60-120) would put every recipe off the scale.
+    decode_tps: [250.0, 600.0]
+    prefill_tps: [10000.0, 60000.0]
     peak_gpu_gib: [14.0, 32.0]
   frontier_gain: FG-2
   # hpc01-e4: RP-KL is section-balanced -- V0's RP-KL × the mean, over sections (each short category, and
@@ -104,8 +106,8 @@ frontier:
   drift: section-balanced
   # Measured maintainer candidates that seed the internal frontier. Miners compete against these;
   # resubmitting one earns nothing.
-  seeds: results/feasibility/artifacts
-  incumbent: V0-baseline-rebuild
+  seeds: results/hpc02/artifacts
+  incumbent: V0-unsloth-ud
 
 gates:
   rp_kl_max: 0.30
@@ -132,21 +134,5 @@ rewards:
   multipliers: {XL: 4.0, L: 2.5, M: 1.5, S: 1.0, XS: 0.5, none: 0.0, REJECT: 0.0}
 
 # External reference points: context only.
-external_references:
-  R1:
-    name: unsloth NVFP4 (hand-tuned mixed NVFP4/FP8)
-    kind: sparkinfer
-    source: unsloth_nvfp4
-    note: runs on the pinned runtime but is not a legal manifest (FP8 attention bytes run as a Q4_K refit)
-  R2:
-    name: llama.cpp + unsloth UD-Q4_K_M (imatrix dynamic GGUF)
-    kind: llama.cpp
-    source: unsloth_gguf
-    file: Qwen3.8-27B-UD-Q4_K_M.gguf
-    llama_cpp_commit: d8df12ebc4592b55dcecf97a32953623d031efdc
-  R3:
-    name: NVIDIA NVFP4 (FP8 attention + GDN)
-    kind: compatibility-boundary
-    repo: nvidia/Qwen3.8-27B-NVFP4
-    revision: dbb8f445b3145f8a4c18ddc769f032d57d32867c
-    reason: per-tensor FP8 scales; the pinned loader accepts only per-row FP8 scales
+# V0 is the popular free GGUF itself (unsloth UD-Q4_K_M, attested bytes), so there are no external references.
+external_references: {}

@@ -1,0 +1,28 @@
+{
+  "gpu": "NVIDIA GeForce RTX 5090, 32607 MiB, 595.84",
+  "cuda": "Build cuda_13.0.r13.0/compiler.36424714_0",
+  "cpu": "Intel(R) Core(TM) Ultra 9 285K",
+  "kernel": "7.0.0-31-generic",
+  "os": "Linux-7.0.0-31-generic-x86_64-with-glibc2.39",
+  "python": "3.12.3",
+  "sparkinfer_commit": "f61355088ddd58549ad8db03675b4543785e1b53",
+  "bittrellis_version": "0.1.0",
+  "bittrellis_commit": "",
+  "evaluator_epoch": "hpc02-e1",
+  "effective_env": {
+    "scoring": {
+      "CUDA_HOME": "/usr/local/cuda",
+      "SPARKINFER_ATTN_REQUANT_Q4K": "0",
+      "SPARKINFER_DETERMINISTIC": "1",
+      "SPARKINFER_MOE_DOWN_REQUANT_Q4K": "0",
+      "SPARKINFER_SPARSE_KV": "0"
+    },
+    "benchmark": {
+      "CUDA_HOME": "/usr/local/cuda",
+      "SPARKINFER_ATTN_REQUANT_Q4K": "0",
+      "SPARKINFER_MOE_DOWN_REQUANT_Q4K": "0",
+      "SPARKINFER_SPARSE_KV": "0"
+    }
+  },
+  "time_utc": "2026-10-08T08:11:58Z"
+}
