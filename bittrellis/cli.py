@@ -212,9 +212,14 @@ def cmd_verify_sources(args) -> int:
 # ------------------------------------------------------------------ build + audit
 
 
+# Where HPC-02's pinned paths (configs/hpc02.yaml model.paths) are resolved: this checkout, or --paths-root. The
+# evaluator runs a PR's steps inside the PR's own checkout, which holds no models, and points them at its own.
+PATHS_ROOT = [REPO_ROOT]
+
+
 def _p02(track, key: str) -> Path:
-    """A pinned HPC-02 path (configs/hpc02.yaml model.paths), repository-relative."""
-    return REPO_ROOT / track["model"]["paths"][key]
+    """A pinned HPC-02 path (configs/hpc02.yaml model.paths)."""
+    return PATHS_ROOT[0] / track["model"]["paths"][key]
 
 
 def _hpc02_sources(track) -> dict:
@@ -639,6 +644,7 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="bittrellis", description="Search the best quantization topology for an LLM on real hardware.")
     ap.add_argument("--version", action="version", version=__version__)
     ap.add_argument("--track", default="HPC-01")
+    ap.add_argument("--paths-root", help="resolve HPC-02's pinned model paths under this directory (default: this checkout)")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     def paths(p, *keys):
@@ -746,6 +752,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--limit", type=int, default=0)
 
     args = ap.parse_args(argv)
+    if args.paths_root:
+        PATHS_ROOT[0] = Path(args.paths_root)
     return args.fn(args)
 
 

@@ -553,7 +553,8 @@ class Evaluator:
             self.restore(Path(args.ledger))
             self.ledger = Ledger(Path(args.ledger), self.epoch)
             os.chmod(self.ledger.root, 0o700)
-        self.py = [sys.executable, "-m", "bittrellis.cli", "--track", self.track.id]
+        self.py = [sys.executable, "-m", "bittrellis.cli", "--track", self.track.id] + (
+            ["--paths-root", str(REPO_ROOT)] if self.track.id == "HPC-02" else [])   # a PR's checkout holds no models
         self.h2 = None
         if self.track.id == "HPC-02":
             from bittrellis import hpc02
