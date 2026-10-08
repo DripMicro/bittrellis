@@ -174,10 +174,27 @@ def cmd_verify_sources(args) -> int:
 # ------------------------------------------------------------------ build + audit
 
 
+def _p02(track, key: str) -> Path:
+    """A pinned HPC-02 path (configs/hpc02.yaml model.paths), repository-relative."""
+    return REPO_ROOT / track["model"]["paths"][key]
+
+
+def _hpc02_sources(track) -> dict:
+    return {"template_dir": _p02(track, "template"), "ud": _p02(track, "shipped"), "calibration_dir": _p02(track, "calibration")}
+
+
 def cmd_build(args) -> int:
     from .build import build
 
     track = load_track(args.track)
+    if track.id == "HPC-02":
+        from . import hpc02
+
+        d = hpc02.load_manifest(Path(args.manifest))
+        out = Path(args.out) if args.out else REPO_ROOT / "models/candidates" / f"{d['name']}.gguf"
+        hpc02.build(Path(args.manifest), out=out, **_hpc02_sources(track))
+        print(out)
+        return 0
     m = Manifest.load(args.manifest)
     out = Path(args.out) if args.out else REPO_ROOT / "models/candidates" / f"{m.name}-{m.candidate_id(_units(args))}"
     build(m, track, _source_dirs(args), out, verify=not args.no_verify)
@@ -233,6 +250,19 @@ def cmd_regenerate(args) -> int:
 
 def cmd_audit(args) -> int:
     from .validate import audit
+
+    if load_track(args.track).id == "HPC-02":
+        from . import hpc02
+
+        ckpt = Path(args.checkpoint)
+        res = hpc02.audit(ckpt, Path(args.manifest or str(ckpt) + ".manifest.yaml"), secret=_secret(args),
+                          **_hpc02_sources(load_track(args.track)))
+        if args.out:
+            Path(args.out).write_text(json.dumps({**res, "fast": False, "checkpoint_files": _gguf_files(ckpt)}, indent=2) + "\n")
+        for e in res["errors"][:30]:
+            print(f"  ✗ {e}")
+        print("AUDIT PASS" if res["ok"] else f"AUDIT FAIL ({res['n_errors']} errors)")
+        return 0 if res["ok"] else 1
 
     if args.regenerated:
         print("foreign quantizers (compared, not executed):", ", ".join(_register_foreign(Path(args.checkpoint))) or "none")
@@ -307,10 +337,43 @@ def cmd_reference(args) -> int:
     return 0
 
 
+def _gguf_files(ckpt: Path) -> dict:
+    """{file name: sha256} of a GGUF candidate, from its build record (the build hashes nothing twice)."""
+    rec = Path(str(ckpt) + ".build.json")
+    return {ckpt.name: json.loads(rec.read_text()).get("sha256")} if rec.exists() else {}
+
+
+def _identity_hpc02(args, track, ckpt: Path) -> dict | None:
+    from . import hpc02
+
+    manifest = Path(str(ckpt) + ".manifest.yaml")
+    d = hpc02.load_manifest(manifest)
+    build_rec = json.loads(Path(str(ckpt) + ".build.json").read_text())
+    ident = {"id": build_rec["candidate_id"], "name": d["name"], "kind": "internal", "track": track.id,
+             "manifest": d, "build": build_rec}
+    out = Path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
+    prior = json.loads(Path(args.audit_json).read_text()) if getattr(args, "audit_json", None) else None
+    if prior is not None and prior.get("candidate_id") == ident["id"] and prior.get("checkpoint_files") == _gguf_files(ckpt):
+        audit_doc = prior
+    else:
+        audit_doc = {**hpc02.audit(ckpt, manifest, secret=_secret(args), **_hpc02_sources(track)),
+                     "checkpoint_files": _gguf_files(ckpt)}
+    (out / "audit.json").write_text(json.dumps(audit_doc, indent=2) + "\n")
+    ident["audit_ok"] = audit_doc["ok"]
+    if not audit_doc["ok"]:
+        print("AUDIT FAIL:", *audit_doc["errors"][:10], sep="\n  ")
+        return None
+    ident["checkpoint_bytes"] = ckpt.stat().st_size
+    return ident
+
+
 def _identity(args, track, ckpt: Path) -> dict | None:
     from .eval.candidate import checkpoint_bytes
     from .validate import audit, describe
 
+    if track.id == "HPC-02" and not args.external:
+        return _identity_hpc02(args, track, ckpt)
     if args.external:
         ref = track["external_references"][args.external]
         ident = {"id": args.external, "name": ref["name"], "kind": "external", "source": ref.get("source")}
@@ -350,8 +413,12 @@ def _evaluate(args, stages: tuple[str, ...]) -> int:
     identity = _identity(args, track, ckpt)
     if identity is None:
         return 1
-    si = SparkInfer(args.sparkinfer, track)
-    evaluate(track, si, ckpt, Path(args.out), load_corpus(Path(args.corpus)), Path(args.reference), identity, stages)
+    sparkinfer, reference = Path(args.sparkinfer), Path(args.reference)
+    if track.id == "HPC-02":   # this track's own runtime checkout and reference, unless given explicitly
+        sparkinfer = _p02(track, "sparkinfer") if args.sparkinfer == DEFAULTS["sparkinfer"] else sparkinfer
+        reference = _p02(track, "reference") if args.reference == DEFAULTS["reference"] else reference
+    si = SparkInfer(sparkinfer, track)
+    evaluate(track, si, ckpt, Path(args.out), load_corpus(Path(args.corpus)), reference, identity, stages)
     print(f"wrote {args.out}")
     return 0
 
@@ -415,8 +482,12 @@ def cmd_holdout(args) -> int:
         verdict = holdout.recheck(track, Path(args.artifact), Path(args.private), Path(args.incumbent_artifact))
         print(f"HOLDOUT {verdict}")
         return 0 if verdict == "PASS" else 1
-    verdict = holdout.check(SparkInfer(args.sparkinfer, track), track, Path(args.checkpoint), Path(args.artifact),
-                            Path(args.private), Path(args.shipped), Path(args.incumbent_artifact))
+    sparkinfer, shipped = Path(args.sparkinfer), Path(args.shipped)
+    if track.id == "HPC-02":   # the incumbent checkpoint is V0, byte for byte the pinned UD GGUF
+        sparkinfer = _p02(track, "sparkinfer") if args.sparkinfer == DEFAULTS["sparkinfer"] else sparkinfer
+        shipped = _p02(track, "shipped") if args.shipped == DEFAULTS["shipped"] else shipped
+    verdict = holdout.check(SparkInfer(sparkinfer, track), track, Path(args.checkpoint), Path(args.artifact),
+                            Path(args.private), shipped, Path(args.incumbent_artifact))
     print(f"HOLDOUT {verdict}")
     return 0 if verdict == "PASS" else 1
 

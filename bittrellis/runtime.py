@@ -13,7 +13,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .track import Track
+from .track import REPO_ROOT, Track
 
 _SWEEP = re.compile(r"^SWEEP_JSON\s+(\{.*\})\s*$", re.M)
 _VRAM = re.compile(r"^VRAM used\s*:\s*([\d.]+)\s*GB", re.M)
@@ -201,7 +201,9 @@ class SparkInfer:
 
     def start_server(self, model_dir: Path, port: int, ctx: int, log: Path,
                      env: dict[str, str] | None = None) -> subprocess.Popen:
-        cmd = [str(self.server_bin), "-m", str(model_dir), "--tokenizer", str(model_dir / "tokenizer.json"),
+        # A checkpoint directory carries its tokenizer; a single GGUF file (HPC-02) uses the track's pinned one.
+        tok = Path(model_dir) / "tokenizer.json" if Path(model_dir).is_dir() else REPO_ROOT / self.track["model"]["paths"]["tokenizer"]
+        cmd = [str(self.server_bin), "-m", str(model_dir), "--tokenizer", str(tok),
                "--ctx", str(ctx), "--host", "127.0.0.1", "--port", str(port)]
         extra = {"SPARKINFER_SAMPLING_DEFAULTS": "greedy", **(env or {})}
         fh = open(log, "w")

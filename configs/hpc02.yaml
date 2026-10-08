@@ -16,6 +16,11 @@ model:
   # The popular free GGUF: the external point every recipe is compared with.
   shipped: {source: qwen36_ud_q4km, repo: unsloth/Qwen3.6-35B-A3B-GGUF, revision: a483e9e6cbd595906af30beda3187c2663a1118c, file: Qwen3.6-35B-A3B-UD-Q4_K_M.gguf}
   formats: [Q4_K, Q5_K, Q6_K, Q8_0]
+  # Local paths (repository-relative) of the pinned sources and of this track's runtime checkout.
+  paths: {base: models/Qwen3.6-35B-A3B, template: models/Qwen3.6-35B-A3B-GGUF/BF16,
+          shipped: models/Qwen3.6-35B-A3B-GGUF/Qwen3.6-35B-A3B-UD-Q4_K_M.gguf, calibration: models/hpc02-calib-v1,
+          tokenizer: models/Qwen3.6-35B-A3B/tokenizer.json, sparkinfer: third_party/sparkinfer-hpc02,
+          reference: data/reference/hpc02-public-v2-k256}
 
 runtime:
   repo: gittensor-ai-lab/sparkinfer

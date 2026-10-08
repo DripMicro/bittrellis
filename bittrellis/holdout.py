@@ -144,12 +144,12 @@ def recheck(track: Track, artifact: Path, private_dir: Path, incumbent_artifact:
     meta = json.loads((private_dir / "epoch.json").read_text())
     name = json.loads((Path(artifact) / "candidate.json").read_text())["name"]
     inc = json.loads((Path(incumbent_artifact) / "candidate.json").read_text())["name"]
-    path = private_dir / "results" / f"{name}.json"
+    path = track_dir(private_dir, track, "results") / f"{name}.json"
     old = json.loads(path.read_text())
     t = transfer(track, dict(np.load(Path(incumbent_artifact) / "kl_positions.npz")),
                  dict(np.load(Path(artifact) / "kl_positions.npz")),
-                 dict(np.load(private_dir / "work" / "incumbent" / inc / "kl_positions.npz")),
-                 dict(np.load(private_dir / "work" / "candidate" / name / "kl_positions.npz")))
+                 dict(np.load(track_dir(private_dir, track, "work") / "incumbent" / inc / "kl_positions.npz")),
+                 dict(np.load(track_dir(private_dir, track, "work") / "candidate" / name / "kl_positions.npz")))
     reasons = [r for r in old["reasons"] if r != TRANSFER_FAIL] + ([TRANSFER_FAIL] if t["fails"] else [])
     verdict = "FAIL" if reasons else "PASS"
     path.write_text(json.dumps({**old, "verdict": verdict, "reasons": reasons, **{k: v for k, v in t.items() if k != "fails"},
@@ -158,26 +158,32 @@ def recheck(track: Track, artifact: Path, private_dir: Path, incumbent_artifact:
     return verdict
 
 
+def track_dir(private_dir: Path, track: Track, what: str) -> Path:
+    """`reference`, `work` or `results` of the holdout for a track: HPC-01 keeps the original folders, every
+    other track its own (e.g. reference-hpc02), so tracks never share a cache or a verdict."""
+    return Path(private_dir) / (what if track.id == "HPC-01" else f"{what}-{track.id.lower().replace('-', '')}")
+
+
 def check(si: SparkInfer, track: Track, checkpoint: Path, artifact: Path, private_dir: Path,
           incumbent_checkpoint: Path, incumbent_artifact: Path, log=print) -> str:
     """Score a candidate (and, once per epoch, the incumbent) on the private holdout; write PASS/FAIL."""
     private_dir = Path(private_dir)
     corpus = json.loads((private_dir / "corpus.json").read_text())
     meta = json.loads((private_dir / "epoch.json").read_text())
-    results = private_dir / "results"
+    results = track_dir(private_dir, track, "results")
     results.mkdir(exist_ok=True)
     cand_name = json.loads((Path(artifact) / "candidate.json").read_text())["name"]
 
     def score(ckpt: Path, name: str) -> tuple[dict, dict]:
-        work = private_dir / "work" / name  # "incumbent/<name>" or "candidate/<name>": a candidate never overwrites the cache
+        work = track_dir(private_dir, track, "work") / name  # "incumbent/<name>" or "candidate/<name>": a candidate never overwrites the cache
         work.mkdir(parents=True, exist_ok=True)
-        q, corr = evaluate_quality(si, track, ckpt, corpus, private_dir / "reference", work, log=log)
+        q, corr = evaluate_quality(si, track, ckpt, corpus, track_dir(private_dir, track, "reference"), work, log=log)
         return q, dict(np.load(work / "kl_positions.npz"))
 
     inc_ident = json.loads((Path(incumbent_artifact) / "candidate.json").read_text())
     inc_name = inc_ident["name"]
     # The incumbent is scored once per epoch and corpus, then reused by every later check.
-    inc_work = private_dir / "work" / "incumbent" / inc_name
+    inc_work = track_dir(private_dir, track, "work") / "incumbent" / inc_name
     stamp = {"epoch": meta["epoch"], "corpus_sha256": corpus.get("sha256"), "candidate_id": inc_ident.get("id")}
     cached = inc_work / "incumbent.json"
     if cached.exists() and (inc_work / "kl_positions.npz").exists() and json.loads(cached.read_text()).get("stamp") == stamp:

@@ -273,8 +273,12 @@ def build(manifest: Path, template_dir: Path, out: Path, ud: Path | None = None,
     summary = {}
     for x in a.values():
         summary[x.key()] = summary.get(x.key(), 0) + 1
-    record = {"candidate_id": cid, "name": d.get("name"), "track": TRACK, "summary": summary, **rec}
+    from .safetensors_io import file_sha256
+
+    record = {"candidate_id": cid, "name": d.get("name"), "track": TRACK, "summary": summary, **rec,
+              "sha256": file_sha256(out)}
     Path(str(out) + ".build.json").write_text(json.dumps(record, indent=2) + "\n")
+    Path(str(out) + ".manifest.yaml").write_text(Path(manifest).read_text())
     log(f"[hpc02] built {d.get('name')} ({cid}): {rec['bytes'] / 1e9:.2f} GB")
     return record
 
