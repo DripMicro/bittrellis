@@ -225,6 +225,21 @@ Everything is pinned in [`configs/hpc01.yaml`](configs/hpc01.yaml) and
 [`configs/sources.lock.json`](configs/sources.lock.json). The rules are in the
 [specification](docs/specification.md).
 
+### The second track: HPC-02
+
+| | |
+|---|---|
+| Model | Qwen3.6-35B-A3B: mixture of experts, 40 layers (30 Gated DeltaNet + 10 full attention), 256 experts of which 8 run per token; BF16 weights hash-locked |
+| GPU | the same RTX 5090 |
+| Runtime | SparkInfer @ `f613550` (CUDA 13.0), GGUF files |
+| Search space | 372 units × Q4_K / Q5_K / Q6_K / Q8_0 × encoder |
+| To beat | unsloth's UD-Q4_K_M, the popular free GGUF |
+| Scoring | as HPC-01: same corpus, guards, tiers and rewards; its own frontier |
+
+A recipe is `manifests/hpc02/<name>.yaml`; a new encoder goes in `bittrellis/hpc02_encoders/`. Both
+are explained in [HPC-02](docs/hpc02.md), with pinned calibration statistics per expert for encoders
+that want them.
+
 ### Key terms
 
 | Term | Meaning |
