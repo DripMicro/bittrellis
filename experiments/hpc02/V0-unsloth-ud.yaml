@@ -1,0 +1,21 @@
+schema: bittrellis/manifest@2
+track: HPC-02
+name: V0-unsloth-ud
+description: >
+  The popular free GGUF, unsloth UD-Q4_K_M, rebuilt from its own bytes (attested): routed expert gate/up Q4_K,
+  routed expert downs Q5_K except layers 34, 38 and 39 (Q6_K), shared experts, attention and recurrent
+  projections Q8_0, embeddings Q8_0, lm_head Q6_K. The incumbent every HPC-02 recipe is measured against.
+default: Q8_0
+encoders: {Q4_K: unsloth_ud, Q5_K: unsloth_ud, Q6_K: unsloth_ud, Q8_0: unsloth_ud}
+rules:
+  - match: "L*.exps.gate"
+    format: Q4_K
+  - match: "L*.exps.up"
+    format: Q4_K
+  - match: "L*.exps.down"
+    format: Q5_K
+modules:
+  L34.exps.down: Q6_K
+  L38.exps.down: Q6_K
+  L39.exps.down: Q6_K
+  lm_head: Q6_K

@@ -184,7 +184,9 @@ def expand(d: dict, us: list[Unit], ud_formats: dict[str, str] | None = None) ->
 
     if "default" not in d:
         raise ManifestError("manifest needs a default format")
-    out = {u.id: check(u, d["default"], None, None, "default") for u in us}
+    # Collect each unit's final (format, encoder, params) first, then validate only that: a default or an
+    # early rule that a later rule overrides never has to be valid on its own.
+    raw = {u.id: (d["default"], None, None, "default") for u in us}
     by_id = {u.id: u for u in us}
     for i, rule in enumerate(d.get("rules") or []):
         extra = set(rule) - {"match", "layers", "format", "encoder", "params", "note"}
@@ -196,12 +198,13 @@ def expand(d: dict, us: list[Unit], ud_formats: dict[str, str] | None = None) ->
         if not hits:
             raise ManifestError(f"rule {i} ({rule['match']!r}, layers={rule.get('layers')}) matches no unit")
         for u in hits:
-            out[u.id] = check(u, rule["format"], rule.get("encoder"), rule.get("params"), f"rule {i}")
+            raw[u.id] = (rule["format"], rule.get("encoder"), rule.get("params"), f"rule {i}")
     for uid, spec in (d.get("modules") or {}).items():
         if uid not in by_id:
             raise ManifestError(f"modules: unknown unit {uid!r}")
         spec = spec if isinstance(spec, dict) else {"format": spec}
-        out[uid] = check(by_id[uid], spec.get("format"), spec.get("encoder"), spec.get("params"), f"modules.{uid}")
+        raw[uid] = (spec.get("format"), spec.get("encoder"), spec.get("params"), f"modules.{uid}")
+    out = {uid: check(by_id[uid], *raw[uid]) for uid in raw}
     return out
 
 

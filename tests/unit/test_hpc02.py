@@ -79,6 +79,13 @@ def test_units_and_expansion(tiny, tmp_path):
     assert a["L1.exps.down"].format == "Q6_K" and a["L0.exps.down"].format == "Q4_K"
     with pytest.raises(hpc02.ManifestError, match="unknown format"):
         hpc02.expand({**d, "default": "NVFP4"}, us)
+    # a default that later rules override never has to be valid on its own
+    ok = {**d, "default": "Q8_0", "encoders": {"Q8_0": "unsloth_ud", "Q4_K": "unsloth_ud"},
+          "rules": [{"match": "L*.exps.*", "format": "Q4_K"}, {"match": "L*.gdn.*", "format": "Q4_K", "encoder": "kq_rtn"},
+                    {"match": "L*.shexp.*", "format": "Q4_K", "encoder": "kq_rtn"}],
+          "modules": {"embed": {"format": "Q4_K", "encoder": "kq_rtn"}, "lm_head": {"format": "Q4_K", "encoder": "kq_rtn"},
+                      "L0.gdn.qkv": "Q8_0", "L1.gdn.qkv": "Q8_0"}}
+    assert hpc02.expand(ok, us, hpc02.ud_formats(ud))["L0.exps.gate"].encoder == "unsloth_ud"
     with pytest.raises(hpc02.ManifestError, match="unsloth_ud stores"):
         hpc02.expand({**d, "rules": [{"match": "L*.gdn.qkv", "format": "Q4_K", "encoder": "unsloth_ud"}]}, us,
                      hpc02.ud_formats(ud))
