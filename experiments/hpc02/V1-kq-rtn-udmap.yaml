@@ -1,0 +1,24 @@
+schema: bittrellis/manifest@2
+track: HPC-02
+name: V1-kq-rtn-udmap
+description: unsloth UD-Q4_K_M's exact format map, every tensor encoded by the built-in
+  kq_rtn (plain per-block rounding from BF16) instead of unsloth's calibrated bytes.
+  Same size and speed as V0; the difference is the encoder alone.
+default: Q8_0
+encoders:
+  Q4_K: kq_rtn
+  Q5_K: kq_rtn
+  Q6_K: kq_rtn
+  Q8_0: kq_rtn
+rules:
+- match: L*.exps.gate
+  format: Q4_K
+- match: L*.exps.up
+  format: Q4_K
+- match: L*.exps.down
+  format: Q5_K
+modules:
+  L34.exps.down: Q6_K
+  L38.exps.down: Q6_K
+  L39.exps.down: Q6_K
+  lm_head: Q6_K

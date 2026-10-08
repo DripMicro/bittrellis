@@ -64,3 +64,11 @@ def test_formats_decode_with_the_reference_decoder():
         assert len(data) == 8 * kquant.row_bytes(fmt, 512)
         errs[fmt] = np.linalg.norm(kquant.dequantize(fmt, data, 512) - w) / np.linalg.norm(w)
     assert errs["Q8_0"] < errs["Q6_K"] < errs["Q5_K"] < errs["Q4_K"] < 0.1   # every extra bit helps
+
+
+def test_chunked_encoding_gives_the_same_bytes(monkeypatch):
+    rng = np.random.default_rng(2)
+    w = (rng.standard_normal((50, 512)) * 0.02).astype(np.float32)
+    whole = {f: kquant.RTN[f](w) for f in ("Q4_K", "Q5_K", "Q6_K", "Q8_0")}
+    monkeypatch.setattr(kquant, "CHUNK_ROWS", 7)
+    assert {f: kquant.RTN[f](w) for f in whole} == whole

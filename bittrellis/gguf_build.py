@@ -93,7 +93,9 @@ def build_gguf(template: list[Path], out: Path, assign: dict[str, tuple[str, Cal
     w.write_ti_data_to_file()
     names = list(tensors)
     todo = [n for n in names if n in assign]
-    jobs = jobs or max(1, min(12, (os.cpu_count() or 2) // 2))
+    # Six workers: each holds one tensor as float32 (an expert tensor is 1 GB) while it encodes; twelve filled
+    # a 62 GB host and its swap on 2026-10-08.
+    jobs = jobs or max(1, min(6, (os.cpu_count() or 2) // 2))
     _JOB.update(tensors=tensors, assign=assign)
     pool = multiprocessing.get_context("fork").Pool(jobs) if jobs > 1 and todo else None
     try:

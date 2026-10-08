@@ -124,7 +124,20 @@ def to_f32(w: np.ndarray) -> bytes:
     return np.asarray(w, "<f4").tobytes()
 
 
-RTN = {"Q4_K": quantize_q4k, "Q5_K": quantize_q5k, "Q6_K": quantize_q6k, "Q8_0": quantize_q8_0, "F32": to_f32}
+CHUNK_ROWS = 4096   # rows are independent: encoding in chunks bounds memory (an expert tensor has 131,072 rows)
+
+
+def chunked(fn):
+    """`fn` applied to row chunks; the bytes are those of one call over all rows."""
+    def run(w: np.ndarray) -> bytes:
+        w = np.asarray(w)
+        w = w.reshape(-1, w.shape[-1])
+        return b"".join(fn(w[r:r + CHUNK_ROWS]) for r in range(0, len(w), CHUNK_ROWS))
+    return run
+
+
+RTN = {k: chunked(f) for k, f in {"Q4_K": quantize_q4k, "Q5_K": quantize_q5k, "Q6_K": quantize_q6k,
+                                    "Q8_0": quantize_q8_0, "F32": to_f32}.items()}
 
 
 def dequantize(fmt: str, data: bytes, cols: int) -> np.ndarray:
