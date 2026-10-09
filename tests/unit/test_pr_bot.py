@@ -203,3 +203,17 @@ def test_each_pr_belongs_to_exactly_one_track():
     assert pr_bot.classify(hpc02, "HPC-01")[1] == []
     # the GGUF pipeline is evaluator code: a PR changing it is left for a maintainer
     assert pr_bot.classify(["bittrellis/hpc02.py", "manifests/hpc02/x.yaml"], "HPC-02")[0] == "evaluator"
+
+
+def test_each_pass_first_pulls_main_and_loads_merged_encoders(monkeypatch):
+    import types
+
+    calls, loaded = [], []
+    monkeypatch.setattr(pr_bot.subprocess, "run", lambda cmd, **k: calls.append(cmd) or types.SimpleNamespace(returncode=0))
+    me = types.SimpleNamespace(h2=types.SimpleNamespace(load_contributed=lambda: loaded.append(1)))
+    pr_bot.Evaluator.sync_main(me)
+    assert calls == [["git", "-C", str(pr_bot.REPO_ROOT), "pull", "--ff-only", "--quiet", "origin", "main"]] and loaded == [1]
+    # a failed pull is reported and changes nothing
+    monkeypatch.setattr(pr_bot.subprocess, "run", lambda cmd, **k: types.SimpleNamespace(returncode=1, stderr="diverged", stdout=""))
+    pr_bot.Evaluator.sync_main(me)
+    assert loaded == [1]

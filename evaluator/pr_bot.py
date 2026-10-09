@@ -708,7 +708,23 @@ class Evaluator:
             self._files[key] = [f["filename"] for f in self.gh.paged(f"/pulls/{pr['number']}/files")]
         return self._files[key]
 
+    def sync_main(self) -> None:
+        """Bring this checkout up to origin/main before a pass. The quality, speed and audit steps run from it, so an
+        encoder merged in the last pass (#138's kq_imat) must be here before a recipe that uses it is measured."""
+        import fcntl
+
+        with open(REPO_ROOT / ".git" / "bt-sync.lock", "a") as fh:   # both evaluators on a box share this checkout
+            fcntl.flock(fh, fcntl.LOCK_EX)
+            r = subprocess.run(["git", "-C", str(REPO_ROOT), "pull", "--ff-only", "--quiet", "origin", "main"],
+                               capture_output=True, text=True)
+        if r.returncode:
+            print(f"[sync] git pull failed: {(r.stderr or r.stdout).strip()[:300]}", flush=True)
+        elif self.h2:
+            self.h2.load_contributed()                 # encoders merged since this process started
+
     def run_once(self) -> None:
+        if getattr(self.args, "sync_main", False):
+            self.sync_main()
         self.sync_merged()
         with self.gpu():
             self.ensure_speeds()  # a newly merged result, or a new machine, is measured here before anything is ranked
@@ -1321,6 +1337,8 @@ def main() -> int:
     ap.add_argument("--track", default=os.environ.get("BT_TRACK", "HPC-01"), choices=("HPC-01", "HPC-02"))
     ap.add_argument("--gpu-lock", default=os.environ.get("BT_GPU_LOCK"),
                     help="file locked around every evaluation; give every evaluator on the box the same one")
+    ap.add_argument("--no-sync-main", dest="sync_main", action="store_false",
+                    help="do not pull origin/main into this checkout before each pass")
     ap.add_argument("--once", action="store_true")
     ap.add_argument("--interval", type=int, default=600)
     args = ap.parse_args()
