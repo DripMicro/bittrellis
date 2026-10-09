@@ -1,0 +1,49 @@
+schema: bittrellis/manifest@2
+track: HPC-02
+name: pr147-shallow-zo-q5k-downs-q4k
+description: >
+  #147's map (#145 with every re-encoded tensor on kq_imat: RP-KL 0.0855, decode 474.6, 23.40 GiB, tasks 567)
+  with the recurrent z and out projections of layers 0-19 on Q5_K (kq_imat) and the routed expert downs of
+  layers 34, 38 and 39 on Q4_K (kq_imat) like the other 37. #148 keeps that shallow half at Q8_0 (RP-KL 0.0598,
+  decode 447.2). Putting it back at Q8_0 on the fast map gave up 2.6% decode and was dominated (#150). Q5_K is
+  one bit above Q4_K, so most of that drift comes back while the extra bytes stay inside the 1% decode floor.
+  The three Q6_K downs give back about 0.19 GiB. Attention k/v, the q/o of layers 3 and 7, and the shared
+  experts stay Q8_0.
+default: Q8_0
+encoders: {Q4_K: unsloth_ud, Q5_K: unsloth_ud, Q6_K: unsloth_ud, Q8_0: unsloth_ud}
+rules:
+  - match: "L*.exps.gate"
+    format: Q4_K
+  - match: "L*.exps.up"
+    format: Q4_K
+  - match: "L*.exps.down"
+    format: Q4_K
+    encoder: kq_imat
+  - match: "L*.gdn.qkv"
+    format: Q4_K
+    encoder: kq_imat
+  - match: "L*.gdn.z"
+    format: Q4_K
+    encoder: kq_imat
+  - match: "L*.gdn.out"
+    format: Q4_K
+    encoder: kq_imat
+  - match: "L*.gdn.z"
+    layers: "0-19"
+    format: Q5_K
+    encoder: kq_imat
+  - match: "L*.gdn.out"
+    layers: "0-19"
+    format: Q5_K
+    encoder: kq_imat
+  - match: "L*.attn.q"
+    layers: "11-39"
+    format: Q4_K
+    encoder: kq_imat
+  - match: "L*.attn.o"
+    layers: "11-39"
+    format: Q4_K
+    encoder: kq_imat
+modules:
+  lm_head: {format: Q4_K, encoder: kq_imat}
+  embed: {format: Q4_K, encoder: kq_imat}
