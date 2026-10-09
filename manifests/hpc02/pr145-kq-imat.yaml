@@ -1,0 +1,43 @@
+schema: bittrellis/manifest@2
+track: HPC-02
+name: pr145-kq-imat
+description: >
+  #145 (UD-Q4_K_M experts with routed downs, recurrent qkv/z/out, attention q/o of layers 11-39, lm_head and
+  embeddings on Q4_K: RP-KL 0.1016, decode 474.3, 23.40 GiB) with every one of those kq_rtn tensors encoded by
+  kq_imat (#138, merged): importance-weighted K-quant scales from the pinned statistics, no error feedback.
+  Formats, kernels, speed and memory are #145's; only the rounding of 289 tensors changes. kq_imat lowers the
+  weighted error of its tensors by 25-32% against kq_rtn (#138's measurements), so drift should fall at the
+  fastest decode on the track. Unsloth's routed gate/up bytes stay.
+default: Q8_0
+encoders: {Q4_K: unsloth_ud, Q5_K: unsloth_ud, Q6_K: unsloth_ud, Q8_0: unsloth_ud}
+rules:
+  - match: "L*.exps.gate"
+    format: Q4_K
+  - match: "L*.exps.up"
+    format: Q4_K
+  - match: "L*.exps.down"
+    format: Q4_K
+    encoder: kq_imat
+  - match: "L*.gdn.qkv"
+    format: Q4_K
+    encoder: kq_imat
+  - match: "L*.gdn.z"
+    format: Q4_K
+    encoder: kq_imat
+  - match: "L*.gdn.out"
+    format: Q4_K
+    encoder: kq_imat
+  - match: "L*.attn.q"
+    layers: "11-39"
+    format: Q4_K
+    encoder: kq_imat
+  - match: "L*.attn.o"
+    layers: "11-39"
+    format: Q4_K
+    encoder: kq_imat
+modules:
+  L34.exps.down: Q6_K
+  L38.exps.down: Q6_K
+  L39.exps.down: Q6_K
+  lm_head: {format: Q4_K, encoder: kq_imat}
+  embed: {format: Q4_K, encoder: kq_imat}
