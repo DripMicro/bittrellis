@@ -1,0 +1,24 @@
+schema: bittrellis/manifest@2
+track: HPC-02
+authors: [e11734937-beep]
+name: ud-downs-q6k-imat-lmhead-q8
+description: >
+  unsloth UD-Q4_K_M (V0) with every routed expert down projection on Q6_K, rounded by the contributed kq_imat
+  encoder, and the output head on Q8_0; all other units keep V0's exact bytes. kq_imat chooses each Q6_K super-block's
+  scales with llama.cpp's importance-weighted search (make_qx_quants) on the pinned per-expert statistics
+  (exps_down.sumsq / count), then refines the stored scale codes and the f16 super-scale by weighted least squares.
+  On the pinned BF16 weights of layers 20 and 38 it lowers the importance-weighted error of the Q6_K downs by
+  26-32% against kq_rtn (and 11% below unsloth's own Q6_K bytes for layer 38), at the same size and speed as the
+  kq_rtn recipe (about 27 GiB).
+default: Q8_0
+encoders: {Q4_K: unsloth_ud, Q5_K: unsloth_ud, Q6_K: unsloth_ud, Q8_0: unsloth_ud}
+rules:
+  - match: "L*.exps.gate"
+    format: Q4_K
+  - match: "L*.exps.up"
+    format: Q4_K
+  - match: "L*.exps.down"
+    format: Q6_K
+    encoder: kq_imat
+modules:
+  lm_head: {format: Q8_0, encoder: kq_rtn}
