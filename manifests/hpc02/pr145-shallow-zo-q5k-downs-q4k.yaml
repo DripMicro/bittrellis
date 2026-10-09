@@ -1,0 +1,49 @@
+schema: bittrellis/manifest@2
+track: HPC-02
+name: pr145-shallow-zo-q5k-downs-q4k
+description: >
+  #145's map (every Gated DeltaNet projection on Q4_K, attention q and o of layers 11-39 on Q4_K: RP-KL 0.1016,
+  decode 474.3, 23.40 GiB, tasks 566) with the recurrent z and out projections of layers 0-19 on Q5_K (kq_rtn)
+  and the routed expert downs of layers 34, 38 and 39 on Q4_K like the other 37. The shallow half of z/out is
+  where #130's drift came from (#142 kept it at Q8_0 and sat at 0.0713; #130's Q4_K on all of it reached 0.0965).
+  Q5_K is one bit above Q4_K, so it should give a slice of that drift back while the extra bytes stay inside
+  the decode noise of 474 tok/s. The three Q6_K downs give back about 0.19 GiB, the same step as #142. Attention
+  k/v, the q/o of layers 3 and 7, and the shared experts stay Q8_0.
+default: Q8_0
+encoders: {Q4_K: unsloth_ud, Q5_K: unsloth_ud, Q6_K: unsloth_ud, Q8_0: unsloth_ud}
+rules:
+  - match: "L*.exps.gate"
+    format: Q4_K
+  - match: "L*.exps.up"
+    format: Q4_K
+  - match: "L*.exps.down"
+    format: Q4_K
+    encoder: kq_rtn
+  - match: "L*.gdn.qkv"
+    format: Q4_K
+    encoder: kq_rtn
+  - match: "L*.gdn.z"
+    format: Q4_K
+    encoder: kq_rtn
+  - match: "L*.gdn.out"
+    format: Q4_K
+    encoder: kq_rtn
+  - match: "L*.gdn.z"
+    layers: "0-19"
+    format: Q5_K
+    encoder: kq_rtn
+  - match: "L*.gdn.out"
+    layers: "0-19"
+    format: Q5_K
+    encoder: kq_rtn
+  - match: "L*.attn.q"
+    layers: "11-39"
+    format: Q4_K
+    encoder: kq_rtn
+  - match: "L*.attn.o"
+    layers: "11-39"
+    format: Q4_K
+    encoder: kq_rtn
+modules:
+  lm_head: {format: Q4_K, encoder: kq_rtn}
+  embed: {format: Q4_K, encoder: kq_rtn}
