@@ -208,12 +208,22 @@ def test_each_pr_belongs_to_exactly_one_track():
 def test_each_pass_first_pulls_main_and_loads_merged_encoders(monkeypatch):
     import types
 
-    calls, loaded = [], []
-    monkeypatch.setattr(pr_bot.subprocess, "run", lambda cmd, **k: calls.append(cmd) or types.SimpleNamespace(returncode=0))
-    me = types.SimpleNamespace(h2=types.SimpleNamespace(load_contributed=lambda: loaded.append(1)))
+    calls, loaded, heads = [], [], iter(["aaa", "bbb", "bbb", "bbb"])
+
+    def fake_run(cmd, **k):
+        calls.append(cmd)
+        return types.SimpleNamespace(returncode=0, stdout=next(heads) if "rev-parse" in cmd else "", stderr="")
+
+    monkeypatch.setattr(pr_bot.subprocess, "run", fake_run)
+    state = {"147-abc": {"status": "error", "errors": 3}, "150-def": {"status": "dominated"}, "_merged": {}}
+    me = types.SimpleNamespace(h2=types.SimpleNamespace(load_contributed=lambda: loaded.append(1)), state=state, save=lambda: None)
     pr_bot.Evaluator.sync_main(me)
-    assert calls == [["git", "-C", str(pr_bot.REPO_ROOT), "pull", "--ff-only", "--quiet", "origin", "main"]] and loaded == [1]
+    assert ["git", "-C", str(pr_bot.REPO_ROOT), "pull", "--ff-only", "--quiet", "origin", "main"] in calls and loaded == [1]
+    assert state["147-abc"]["errors"] == 0 and state["150-def"] == {"status": "dominated"}   # new code: fresh tries
+    state["147-abc"]["errors"] = 3
+    pr_bot.Evaluator.sync_main(me)                     # main did not move: a PR that used up its tries stays stopped
+    assert state["147-abc"]["errors"] == 3 and loaded == [1, 1]
     # a failed pull is reported and changes nothing
     monkeypatch.setattr(pr_bot.subprocess, "run", lambda cmd, **k: types.SimpleNamespace(returncode=1, stderr="diverged", stdout=""))
     pr_bot.Evaluator.sync_main(me)
-    assert loaded == [1]
+    assert loaded == [1, 1]

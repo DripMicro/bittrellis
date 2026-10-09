@@ -713,14 +713,27 @@ class Evaluator:
         encoder merged in the last pass (#138's kq_imat) must be here before a recipe that uses it is measured."""
         import fcntl
 
+        def head() -> str:
+            return subprocess.run(["git", "-C", str(REPO_ROOT), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+
         with open(REPO_ROOT / ".git" / "bt-sync.lock", "a") as fh:   # both evaluators on a box share this checkout
             fcntl.flock(fh, fcntl.LOCK_EX)
+            before = head()
             r = subprocess.run(["git", "-C", str(REPO_ROOT), "pull", "--ff-only", "--quiet", "origin", "main"],
                                capture_output=True, text=True)
+            after = head()
         if r.returncode:
             print(f"[sync] git pull failed: {(r.stderr or r.stdout).strip()[:300]}", flush=True)
-        elif self.h2:
+            return
+        if self.h2:
             self.h2.load_contributed()                 # encoders merged since this process started
+        if before != after:   # new code may fix what failed: PRs that used up their tries get fresh ones
+            retry = [k for k, e in self.state.items() if isinstance(e, dict) and e.get("status") == "error" and e.get("errors")]
+            for k in retry:
+                self.state[k]["errors"] = 0
+            if retry:
+                print(f"[sync] main moved to {after[:7]}: retrying {', '.join(retry)}", flush=True)
+                self.save()
 
     def run_once(self) -> None:
         if getattr(self.args, "sync_main", False):
